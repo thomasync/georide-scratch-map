@@ -19,6 +19,8 @@ import { LoggerService } from '../../core/services/logger';
 import { PolylineService } from '../../core/services/polyline';
 import { MAP_STYLES, ThemeService } from '../../core/services/theme';
 import { ScreenshotService } from '../../core/services/screenshot';
+import { DemoService, DemoData } from '../../core/services/demo';
+import { Router } from '@angular/router';
 
 const DEPT_MODE_ZOOM_THRESHOLD = 7.5;
 const DEPT_FOCUS_EXIT_ZOOM = 9;
@@ -43,6 +45,12 @@ export class Map {
 	private destroyRef = inject(DestroyRef);
 	theme = inject(ThemeService);
 	private screenshot = inject(ScreenshotService);
+	private demo = inject(DemoService);
+	private router = inject(Router);
+
+	private get isDemo(): boolean {
+		return this.router.url.startsWith('/demo');
+	}
 
 	loading = signal(true);
 	loadingHiding = signal(false);
@@ -222,8 +230,31 @@ export class Map {
 		});
 	}
 
+	private applyDemoData({ departments, enrichedDepts, cellsByResolution, tripCount, totalKm }: DemoData): void {
+		this.departments = departments;
+		this.enrichedDepts = enrichedDepts;
+		this.cellsByResolution = cellsByResolution;
+		this.tripCount.set(tripCount);
+		this.totalKm.set(totalKm);
+		this.hexagonCount.set(0);
+		this.addLayers();
+		this.map!.once('idle', () => {
+			this.map!.jumpTo({ zoom: this.deptThreshold - 0.1 });
+			this.loadingHiding.set(true);
+			setTimeout(() => { this.loading.set(false); this.loadingHiding.set(false); }, 500);
+		});
+	}
+
 	private loadData(): void {
 		this.logger.log('Map', 'loadData called');
+
+		if (this.isDemo) {
+			this.demo.load().subscribe({
+				next: (data) => this.applyDemoData(data),
+				error: () => { this.error.set('Impossible de charger les départements'); this.loading.set(false); },
+			});
+			return;
+		}
 
 		forkJoin({
 			trackers: this.api.getTrackers(),

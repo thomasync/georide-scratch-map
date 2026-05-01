@@ -12,4 +12,8 @@ export const routes: Routes = [
 		loadComponent: () => import('./features/map/map').then((m) => m.Map),
 		canActivate: [authGuard],
 	},
+	{
+		path: 'demo',
+		loadComponent: () => import('./features/map/map').then((m) => m.Map),
+	},
 ];
