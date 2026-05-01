@@ -1,0 +1,94 @@
+<div class="login-page">
+	<div class="cards-wrapper">
+		<div class="info-card">
+			<div class="info-header">
+				<h2>GeoRide Scratch Map</h2>
+				<span class="poc-badge">POC</span>
+			</div>
+			<p class="info-lead">
+				Visualise tous les trajets moto unifiés sur une carte. Chaque zone visitée révèle la carte, comme un
+				scratch à gratter.
+			</p>
+			<ul class="info-features">
+				<li>
+					Aucune donnée personnelle n'est collectée ou stockée. Tout se passe localement dans le navigateur,
+					les seules requêtes externes sont celles vers les serveurs GeoRide
+				</li>
+				<li>
+					Le mot de passe n'est jamais conservé. Seul le token de session est gardé localement dans le
+					navigateur
+				</li>
+			</ul>
+			<div class="info-footer">
+				<p>
+					Ce projet est un <strong>POC personnel open source</strong>.<br />
+					J'espère que la team GeoRide s'en inspirera pour l'intégrer dans l'app officielle.
+				</p>
+				<a
+					href="https://github.com/thomasync/georide-scratch-map"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="github-link"
+				>
+					Voir le code source →
+				</a>
+			</div>
+		</div>
+
+		<div class="login-card">
+			<div class="login-logo">
+				<img class="logo-icon" src="georide-icon.webp" alt="GeoRide" (click)="onLogoClick()" />
+			</div>
+
+			<form (ngSubmit)="submit()">
+				<div class="field">
+					<label for="email">Email</label>
+					<input
+						id="email"
+						name="email"
+						type="email"
+						[ngModel]="email()"
+						(ngModelChange)="email.set($event)"
+						placeholder="votre@email.com"
+						autocomplete="email"
+						required
+					/>
+				</div>
+
+				<div class="field">
+					<label for="password">Mot de passe</label>
+					<input
+						id="password"
+						name="password"
+						type="password"
+						[ngModel]="password()"
+						(ngModelChange)="password.set($event)"
+						placeholder="••••••••"
+						autocomplete="current-password"
+						required
+					/>
+				</div>
+
+				@if (error()) {
+					<p class="error">{{ error() }}</p>
+				}
+
+				<button type="submit" [disabled]="loading() || !email() || !password()">
+					@if (loading()) {
+						Connexion…
+					} @else {
+						Se connecter
+					}
+				</button>
+			</form>
+		</div>
+	</div>
+
+	<button
+		class="theme-toggle"
+		(click)="theme.toggle()"
+		[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+	>
+		<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
+	</button>
+</div>
