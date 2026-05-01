@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { latLngToCell, gridPathCells, cellToBoundary, cellToLatLng, polygonToCells, cellsToMultiPolygon } from 'h3-js';
+import polygonClipping from 'polygon-clipping';
 import { LoggerService } from './logger';
 
 export const RESOLUTIONS = [6, 7] as const;
@@ -264,21 +265,40 @@ export class H3Service {
 		};
 	}
 
-	// World polygon with department boundaries as holes — used as overlay in dept mode
-	departmentsToWorldOverlay(departments: GeoJSON.FeatureCollection): GeoJSON.Feature<GeoJSON.Polygon> {
+	// Explicit "world minus visited departments" computed via polygon boolean difference.
+	// Avoids the earcut bridge artifacts that appear when using a single polygon-with-holes.
+	departmentsToWorldOverlay(departments: GeoJSON.FeatureCollection): GeoJSON.Feature<GeoJSON.MultiPolygon> {
 		this.logger.log('H3', `departmentsToWorldOverlay features=${departments.features.length}`);
-		const holes: GeoJSON.Position[][] = [];
+
+		// polygon-clipping expects exterior rings in CCW winding (positive signed area).
+		// The dept GeoJSON has CW outer rings, so we reverse them.
+		const signedArea = (ring: [number, number][]): number => {
+			let a = 0;
+			for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+				a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+			return a / 2;
+		};
+		const asCCW = (ring: GeoJSON.Position[]): [number, number][] => {
+			const r = ring as [number, number][];
+			return signedArea(r) < 0 ? [...r].reverse() : r;
+		};
+
+		const deptPolys: polygonClipping.Polygon[] = [];
 		for (const feature of departments.features) {
 			const geom = feature.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
 			if (geom.type === 'Polygon') {
-				holes.push(geom.coordinates[0]);
+				deptPolys.push([asCCW(geom.coordinates[0])]);
 			} else {
-				for (const poly of geom.coordinates) holes.push(poly[0]);
+				for (const poly of geom.coordinates) deptPolys.push([asCCW(poly[0] as GeoJSON.Position[])]);
 			}
 		}
+
+		const world: polygonClipping.Polygon = [WORLD_RING as [number, number][]];
+		const diff = polygonClipping.difference(world, ...deptPolys);
+
 		return {
 			type: 'Feature',
-			geometry: { type: 'Polygon', coordinates: [WORLD_RING as GeoJSON.Position[], ...holes] },
+			geometry: { type: 'MultiPolygon', coordinates: diff as GeoJSON.Position[][][] },
 			properties: {},
 		};
 	}

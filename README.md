@@ -40,6 +40,7 @@ L'ensemble de la scratch map repose sur seulement 3 appels API existants : récu
 - [Angular](https://angular.dev/) 21
 - [MapLibre GL](https://maplibre.org/) — rendu cartographique
 - [H3](https://h3geo.org/) — grille hexagonale
+- [polygon-clipping](https://github.com/mfogel/polygon-clipping) — opérations booléennes sur polygones (différence monde − départements)
 
 ## Lancer le projet
 
