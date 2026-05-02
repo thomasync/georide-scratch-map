@@ -140,6 +140,12 @@
 	}
 }
 
+.info-links {
+	display: flex;
+	gap: 1rem;
+}
+
+.demo-link,
 .github-link {
 	font-size: 0.85rem;
 	color: var(--accent);

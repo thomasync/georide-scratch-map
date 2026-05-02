@@ -11,9 +11,13 @@
 		[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
 	>
 		<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
-</button>
-	<button class="ctrl-btn" (click)="resetView()" title="Vue France complète"><img src="world_map.png" alt="" class="ctrl-icon" /></button>
-	<button class="ctrl-btn" (click)="takeScreenshot()" title="Télécharger une capture"><img src="camera.png" alt="" class="ctrl-icon" /></button>
+	</button>
+	<button class="ctrl-btn" (click)="resetView()" title="Vue France complète">
+		<img src="world_map.png" alt="" class="ctrl-icon" />
+	</button>
+	<button class="ctrl-btn" (click)="takeScreenshot()" title="Télécharger une capture">
+		<img src="camera.png" alt="" class="ctrl-icon" />
+	</button>
 </div>
 
 @if (loading()) {
@@ -32,9 +36,16 @@
 	<!-- Feature: stats panel -->
 	<div class="stats-panel">
 		@if (focusStats(); as fs) {
+			@if (fs.name) {
+				<div class="stat">
+					<span class="stat-value stat-dept-name">{{ fs.name }}</span>
+					<span class="stat-label">dept.</span>
+				</div>
+				<span class="stat-sep">·</span>
+			}
 			<div class="stat">
 				<span class="stat-value">{{ fs.trips }}</span>
-				<span class="stat-label">trajets</span>
+				<span class="stat-label">{{ fs.trips === 1 ? 'trajet' : 'trajets' }}</span>
 			</div>
 			<span class="stat-sep">·</span>
 			<div class="stat">
@@ -54,7 +65,7 @@
 		} @else {
 			<div class="stat">
 				<span class="stat-value">{{ tripCount() }}</span>
-				<span class="stat-label">trajets</span>
+				<span class="stat-label">{{ tripCount() === 1 ? 'trajet' : 'trajets' }}</span>
 			</div>
 			<span class="stat-sep">·</span>
 			<div class="stat">

@@ -156,4 +156,15 @@
 	}
 }
 
+.stat-dept-name {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 9rem;
+
+	@media (max-width: 480px) {
+		max-width: 5rem;
+	}
+}
+
 // Popup styles → déplacés dans styles.scss (global)

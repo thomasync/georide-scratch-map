@@ -1,8 +1,14 @@
 import { HttpInterceptorFn, HttpResponse } from '@angular/common/http';
 import { of, tap } from 'rxjs';
 
-const TTL = 60 * 60 * 1000;
+const TTL_1H = 60 * 60 * 1000;
+const TTL_7D = 7 * 24 * 60 * 60 * 1000;
 const PREFIX = 'georide_cache_';
+
+const CACHED_HOSTS: { pattern: string; ttl: number }[] = [
+	{ pattern: 'api.georide.com', ttl: TTL_1H },
+	{ pattern: 'router.project-osrm.org', ttl: TTL_7D },
+];
 
 let pruned = false;
 
@@ -26,7 +32,8 @@ function pruneExpiredCache(): void {
 
 export const cacheInterceptor: HttpInterceptorFn = (req, next) => {
 	pruneExpiredCache();
-	if (req.method !== 'GET' || !req.url.includes('api.georide.com')) {
+	const host = CACHED_HOSTS.find((h) => req.url.includes(h.pattern));
+	if (req.method !== 'GET' || !host) {
 		return next(req);
 	}
 
@@ -46,7 +53,7 @@ export const cacheInterceptor: HttpInterceptorFn = (req, next) => {
 	return next(req).pipe(
 		tap((event) => {
 			if (event instanceof HttpResponse && event.status === 200) {
-				localStorage.setItem(key, JSON.stringify({ body: event.body, expiresAt: Date.now() + TTL }));
+				localStorage.setItem(key, JSON.stringify({ body: event.body, expiresAt: Date.now() + host.ttl }));
 			}
 		}),
 	);

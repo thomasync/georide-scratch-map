@@ -4,7 +4,7 @@ Scratch map des trajets moto GeoRide.
 
 Visualise tous les trajets moto unifiés sur une carte. Chaque zone visitée révèle la carte, comme un scratch à gratter.
 
-**[Voir le site](https://georide-scratch-map.thomasync.dev/)**
+**[Voir le site](https://georide-scratch-map.thomasync.dev/)** · **[Voir la démo](https://georide-scratch-map.thomasync.dev/demo)**
 
 > Ce projet est un **POC personnel open source**, je ne suis pas affilié à GeoRide. J'utilise cette app depuis plusieurs mois en privé, mais j'ai décidé de la rendre publique en apprenant qu'ils sortent une nouvelle application en juin, c'est le bon moment pour partager l'idée.
 

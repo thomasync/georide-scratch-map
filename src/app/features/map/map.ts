@@ -60,7 +60,7 @@ export class Map {
 	error = signal('');
 	zoom = signal(0);
 	isDevMode = isDevMode();
-	focusStats = signal<{ trips: number; km: number; hex: number; pct: number } | null>(null);
+	focusStats = signal<{ trips: number; km: number; hex: number; pct: number; name?: string } | null>(null);
 
 	private map: maplibregl.Map | null = null;
 	private cellsByResolution: Partial<Record<H3Resolution, H3Data>> = {};
@@ -111,7 +111,7 @@ export class Map {
 		}
 		await this.screenshot.capture(this.map, { items: this.loading() || this.error() ? [] : items });
 		if (maskVisible) {
-			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', 0.20);
+			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', 0.2);
 			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity-transition', { duration: 300, delay: 0 });
 		}
 	}
@@ -230,19 +230,22 @@ export class Map {
 		});
 	}
 
-	private applyDemoData({ departments, enrichedDepts, cellsByResolution, tripCount, totalKm }: DemoData): void {
+	private applyDemoData({
+		departments,
+		tripsWithCoords,
+		cellsByResolution,
+		tripCount,
+		totalKm,
+		hexagonCount,
+	}: DemoData): void {
 		this.departments = departments;
-		this.enrichedDepts = enrichedDepts;
+		this.tripsWithCoords = tripsWithCoords as TripWithCoords[];
 		this.cellsByResolution = cellsByResolution;
 		this.tripCount.set(tripCount);
 		this.totalKm.set(totalKm);
-		this.hexagonCount.set(0);
+		this.hexagonCount.set(hexagonCount);
 		this.addLayers();
-		this.map!.once('idle', () => {
-			this.map!.jumpTo({ zoom: this.deptThreshold - 0.1 });
-			this.loadingHiding.set(true);
-			setTimeout(() => { this.loading.set(false); this.loadingHiding.set(false); }, 500);
-		});
+		this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
 	}
 
 	private loadData(): void {
@@ -251,7 +254,10 @@ export class Map {
 		if (this.isDemo) {
 			this.demo.load().subscribe({
 				next: (data) => this.applyDemoData(data),
-				error: () => { this.error.set('Impossible de charger les départements'); this.loading.set(false); },
+				error: () => {
+					this.error.set('Impossible de charger les départements');
+					this.loading.set(false);
+				},
 			});
 			return;
 		}
@@ -304,20 +310,7 @@ export class Map {
 					this.hexagonCount.set(Object.keys(this.cellsByResolution[DEPT_RESOLUTION]?.counts ?? {}).length);
 
 					this.addLayers();
-					const coords = this.tripsWithCoords.map((t) => t.coords);
-					const fitMaxZoom = 8;
-					this.fitToVisited(coords, fitMaxZoom, 1.2, false);
-
-					this.map!.once('idle', () => {
-						this.map!.jumpTo({ zoom: this.deptThreshold + 0.1 });
-						this.loadingHiding.set(true);
-						setTimeout(() => {
-							this.loading.set(false);
-							this.loadingHiding.set(false);
-						}, 500);
-						this.logger.log('Map', 'done');
-						this.fitToVisited(coords, fitMaxZoom, 0.4);
-					});
+					this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
 				},
 				error: (err) => {
 					this.logger.error('Map', 'API error', err);
@@ -327,8 +320,17 @@ export class Map {
 			});
 	}
 
+	private hideCityLabels(): void {
+		for (const layer of this.map!.getStyle().layers) {
+			if (layer.type !== 'symbol') continue;
+			this.map!.setPaintProperty(layer.id, 'text-opacity', ['interpolate', ['linear'], ['zoom'], 6.5, 0, 7, 1]);
+		}
+	}
+
 	private addLayers(): void {
 		if (!this.map || !Object.keys(this.cellsByResolution).length) return;
+
+		this.hideCityLabels();
 
 		if (this.theme.isDark()) {
 			this.map.setPaintProperty('background', 'background-color', '#1c1c1e');
@@ -361,7 +363,7 @@ export class Map {
 				id: 'dept-focus-mask',
 				type: 'fill',
 				source: 'dept-focus-mask',
-				paint: { 'fill-color': '#000000', 'fill-opacity': 0.20 },
+				paint: { 'fill-color': '#000000', 'fill-opacity': 0.2 },
 				layout: { visibility: 'none' },
 			});
 			this.map.on('click', 'dept-focus-mask', (e) => {
@@ -676,8 +678,14 @@ export class Map {
 					if (pct > 0) {
 						this.map!.setFilter('depts-hover', ['==', ['get', 'code'], code]);
 						this.map!.setPaintProperty('depts-hover', 'fill-opacity', 0.2);
+						const enriched = this.enrichedDepts?.features.find((f) => f.properties?.['code'] === code);
+						if (enriched)
+							this.setDeptStats(
+								enriched as unknown as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+							);
 					} else {
 						this.map!.setPaintProperty('depts-hover', 'fill-opacity', 0);
+						this.focusStats.set(null);
 					}
 				}
 			});
@@ -685,6 +693,7 @@ export class Map {
 				this.map!.getCanvas().style.cursor = '';
 				this.hoveredDeptId = null;
 				this.map!.setPaintProperty('depts-hover', 'fill-opacity', 0);
+				this.focusStats.set(null);
 			});
 		} else {
 			(this.map.getSource('depts') as maplibregl.GeoJSONSource).setData(this.enrichedDepts);
@@ -764,10 +773,12 @@ export class Map {
 			this.logger.log('Map', '[HEXCLICK] skipping popup (closingTrip)');
 			return;
 		}
+		// Capture at click time: closeOnClick may null openPopupCell before the timer fires
+		const wasOpenOnCell = this.openPopupCell === cell;
 		this.hexTapTimer = setTimeout(() => {
-			this.logger.log('Map', '[HEXCLICK] timer fired → openHexPopup');
+			this.logger.log('Map', `[HEXCLICK] timer fired → ${wasOpenOnCell ? 'close' : 'open'}`);
 			this.hexTapTimer = null;
-			if (this.openPopupCell === cell) {
+			if (wasOpenOnCell) {
 				this.popup?.remove();
 				this.popup = null;
 			} else {
@@ -847,24 +858,7 @@ export class Map {
 		this.logger.log('Map', `[DEPTCLICK] geom type=${geom?.type ?? 'null'}`);
 		if (!geom) return;
 		this.focusedDeptFeature = fullFeature;
-
-		// Compute dept-scoped stats
-		const props = enriched.properties as { pct?: number; h3Visited?: number } | undefined;
-		const data = this.cellsByResolution[DEPT_RESOLUTION];
-		if (data) {
-			const deptCells = this.h3.getDepartmentCells(this.focusedDeptFeature, DEPT_RESOLUTION);
-			const tripIndices = new Set<number>();
-			for (const c of deptCells) {
-				for (const idx of data.cellToIndices[c] ?? []) tripIndices.add(idx);
-			}
-			const km = Math.round([...tripIndices].reduce((s, i) => s + this.tripsWithCoords[i].distance, 0) / 1000);
-			this.focusStats.set({
-				trips: tripIndices.size,
-				km,
-				hex: props?.h3Visited ?? deptCells.filter((c) => data.counts[c] !== undefined).length,
-				pct: props?.pct ?? 0,
-			});
-		}
+		this.setDeptStats(fullFeature);
 
 		// Show the mask that darkens everything outside this dept
 		this.logger.log('Map', '[DEPTCLICK] setData mask + visibility=visible');
@@ -904,6 +898,25 @@ export class Map {
 				this.focusDragHandler = handler;
 				this.map!.once('dragend', handler);
 			}
+		});
+	}
+
+	private setDeptStats(feature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>): void {
+		const props = feature.properties as { pct?: number; h3Visited?: number } | undefined;
+		const data = this.cellsByResolution[DEPT_RESOLUTION];
+		if (!data) return;
+		const deptCells = this.h3.getDepartmentCells(feature, DEPT_RESOLUTION);
+		const tripIndices = new Set<number>();
+		for (const c of deptCells) {
+			for (const idx of data.cellToIndices[c] ?? []) tripIndices.add(idx);
+		}
+		const km = Math.round([...tripIndices].reduce((s, i) => s + this.tripsWithCoords[i].distance, 0) / 1000);
+		this.focusStats.set({
+			trips: tripIndices.size,
+			km,
+			hex: props?.h3Visited ?? deptCells.filter((c) => data.counts[c] !== undefined).length,
+			pct: props?.pct ?? 0,
+			name: (feature.properties as Record<string, unknown>)?.['nom'] as string | undefined,
 		});
 	}
 
@@ -1065,6 +1078,36 @@ export class Map {
 				properties: { id: trip.id },
 			})),
 		};
+	}
+
+	private initViewAfterLoad(coords: [number, number][][]): void {
+		const fitMaxZoom = 8;
+		this.fitToVisited(coords, fitMaxZoom, 1.2, false);
+		this.map!.once('idle', () => {
+			const all = coords.flat();
+			let jumpZoom = this.deptThreshold + 0.1;
+			if (all.length) {
+				const lats = all.map((c) => c[0]);
+				const lons = all.map((c) => c[1]);
+				const camera = this.map!.cameraForBounds(
+					[
+						[Math.min(...lons), Math.min(...lats)],
+						[Math.max(...lons), Math.max(...lats)],
+					],
+					{ padding: 40, maxZoom: fitMaxZoom },
+				);
+				const expectedZoom = camera?.zoom ?? jumpZoom;
+				jumpZoom = expectedZoom <= this.deptThreshold ? this.deptThreshold - 0.1 : this.deptThreshold + 0.1;
+			}
+			this.map!.jumpTo({ zoom: jumpZoom });
+			this.loadingHiding.set(true);
+			setTimeout(() => {
+				this.loading.set(false);
+				this.loadingHiding.set(false);
+			}, 500);
+			this.logger.log('Map', 'done');
+			this.fitToVisited(coords, fitMaxZoom, 0.4);
+		});
 	}
 
 	private fitToVisited(tripCoords: [number, number][][], maxZoom = 8, speed = 1.2, animate = true): void {
