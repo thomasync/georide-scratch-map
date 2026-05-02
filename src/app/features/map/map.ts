@@ -643,7 +643,11 @@ export class Map {
 		}
 
 		if (!this.map.getSource('depts')) {
-			this.map.addSource('depts', { type: 'geojson', data: this.enrichedDepts, promoteId: 'code' });
+			this.map.addSource('depts', {
+				type: 'geojson',
+				data: this.stripPolygonHoles(this.enrichedDepts),
+				promoteId: 'code',
+			});
 			this.map.addLayer({
 				id: 'depts-fill',
 				type: 'fill',
@@ -696,7 +700,9 @@ export class Map {
 				this.focusStats.set(null);
 			});
 		} else {
-			(this.map.getSource('depts') as maplibregl.GeoJSONSource).setData(this.enrichedDepts);
+			(this.map.getSource('depts') as maplibregl.GeoJSONSource).setData(
+				this.stripPolygonHoles(this.enrichedDepts),
+			);
 		}
 
 		if (!this.map.getSource('depts-labels')) {
@@ -728,6 +734,20 @@ export class Map {
 		} else {
 			(this.map.getSource('depts-labels') as maplibregl.GeoJSONSource).setData(labelData);
 		}
+	}
+
+	private stripPolygonHoles(fc: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+		return {
+			...fc,
+			features: fc.features.map((f) => {
+				const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+				const geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon =
+					geom.type === 'Polygon'
+						? { type: 'Polygon', coordinates: [geom.coordinates[0]] }
+						: { type: 'MultiPolygon', coordinates: geom.coordinates.map((poly) => [poly[0]]) };
+				return { ...f, geometry };
+			}),
+		};
 	}
 
 	private getDeptCentroid(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): [number, number] {
