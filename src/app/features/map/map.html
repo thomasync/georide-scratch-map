@@ -33,57 +33,87 @@
 }
 
 @if (!loading() && !error()) {
-	<!-- Feature: stats panel -->
-	<div class="stats-panel">
-		@if (focusStats(); as fs) {
-			@if (fs.name) {
+	<!-- Feature: bottom UI (filter bar + stats panel) -->
+	<div class="bottom-ui">
+		<!-- Stats panel -->
+		<div class="stats-panel">
+			@if (focusStats(); as fs) {
+				@if (fs.name) {
+					<div class="stat">
+						<span class="stat-value stat-dept-name">{{ fs.name }}</span>
+						<span class="stat-label">dept.</span>
+					</div>
+					<span class="stat-sep">·</span>
+				}
 				<div class="stat">
-					<span class="stat-value stat-dept-name">{{ fs.name }}</span>
-					<span class="stat-label">dept.</span>
+					<span class="stat-value">{{ fs.trips }}</span>
+					<span class="stat-label">{{ fs.trips === 1 ? 'trajet' : 'trajets' }}</span>
 				</div>
 				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ focusKmFormatted() }}</span>
+					<span class="stat-label">km</span>
+				</div>
+				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ fs.hex }}</span>
+					<span class="stat-label">hex.</span>
+				</div>
+				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ fs.pct }}%</span>
+					<span class="stat-label">exploré</span>
+				</div>
+			} @else {
+				<div class="stat">
+					<span class="stat-value">{{ tripCount() }}</span>
+					<span class="stat-label">{{ tripCount() === 1 ? 'trajet' : 'trajets' }}</span>
+				</div>
+				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ totalKmFormatted() }}</span>
+					<span class="stat-label">km</span>
+				</div>
+				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ hexagonCount() }}</span>
+					<span class="stat-label">hex.</span>
+				</div>
 			}
-			<div class="stat">
-				<span class="stat-value">{{ fs.trips }}</span>
-				<span class="stat-label">{{ fs.trips === 1 ? 'trajet' : 'trajets' }}</span>
-			</div>
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ focusKmFormatted() }}</span>
-				<span class="stat-label">km</span>
-			</div>
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ fs.hex }}</span>
-				<span class="stat-label">hex.</span>
-			</div>
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ fs.pct }}%</span>
-				<span class="stat-label">exploré</span>
-			</div>
-		} @else {
-			<div class="stat">
-				<span class="stat-value">{{ tripCount() }}</span>
-				<span class="stat-label">{{ tripCount() === 1 ? 'trajet' : 'trajets' }}</span>
-			</div>
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ totalKmFormatted() }}</span>
-				<span class="stat-label">km</span>
-			</div>
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ hexagonCount() }}</span>
-				<span class="stat-label">hex.</span>
-			</div>
-		}
-		@if (isDevMode) {
-			<span class="stat-sep">·</span>
-			<div class="stat">
-				<span class="stat-value">{{ zoom() }}</span>
-				<span class="stat-label">zoom</span>
-			</div>
-		}
+			@if (isDevMode) {
+				<span class="stat-sep">·</span>
+				<div class="stat">
+					<span class="stat-value">{{ zoom() }}</span>
+					<span class="stat-label">zoom</span>
+				</div>
+			}
+		</div>
+
+		<!-- Filter bar -->
+		<div class="filter-bar">
+			@if (dateFilter() === 'custom') {
+				<input
+					type="date"
+					class="filter-chip date-input-chip"
+					[value]="customFrom()"
+					(change)="updateCustomDate('from', $any($event.target).value)"
+				/>
+				<input
+					type="date"
+					class="filter-chip date-input-chip"
+					[value]="customTo()"
+					(change)="updateCustomDate('to', $any($event.target).value)"
+				/>
+				<button class="filter-chip active" (click)="selectFilter('all')">
+					{{ dateFilterLabels['custom'] }}
+				</button>
+			} @else {
+				@for (preset of dateFilterPresets(); track preset) {
+					<button class="filter-chip" [class.active]="dateFilter() === preset" (click)="selectFilter(preset)">
+						{{ dateFilterLabels[preset] }}
+					</button>
+				}
+			}
+		</div>
 	</div>
 }

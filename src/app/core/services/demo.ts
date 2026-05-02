@@ -532,7 +532,27 @@ export class DemoService {
 		{ coords, distanceM }: { coords: [number, number][]; distanceM: number },
 	): DemoTripWithCoords {
 		const durationSec = Math.round((distanceM / 1000 / 75) * 3600);
-		const startDate = new Date(route.date + 'T09:00:00Z');
+
+		// Dates relatives pour s'assurer que tous les filtres de la démo soient couverts
+		const relativeOffsets = [
+			0, // aujourd'hui
+			1, // hier
+			2, // avant-hier
+			5, // cette semaine
+			15, // ce mois-ci
+			45, // le mois dernier
+			80, // 3 mois
+			150, // 6 mois
+			300, // cette année (ou l'an dernier selon la date)
+			500, // l'an dernier
+			900, // 3 ans
+		];
+		const daysAgo = i < relativeOffsets.length ? relativeOffsets[i] : 15 + i * 25;
+
+		const startDate = new Date();
+		startDate.setDate(startDate.getDate() - daysAgo);
+		startDate.setHours(9, 0, 0, 0);
+
 		return {
 			id: i + 1,
 			trackerId: 1,

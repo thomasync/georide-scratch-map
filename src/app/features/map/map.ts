@@ -4,6 +4,7 @@ import {
 	computed,
 	DestroyRef,
 	effect,
+	HostListener,
 	inject,
 	isDevMode,
 	signal,
@@ -29,6 +30,52 @@ const POLYLINE_MODE_ZOOM_THRESHOLD = 13;
 
 type Mode = 'hex' | 'dept' | 'polyline';
 type TripWithCoords = Trip & { coords: [number, number][] };
+type DateFilterPreset =
+	| 'all'
+	| 'today'
+	| 'yesterday'
+	| 'day-before'
+	| 'this-week'
+	| 'this-month'
+	| 'last-month'
+	| '3-months'
+	| '6-months'
+	| 'this-year'
+	| 'last-year'
+	| '3-years'
+	| 'custom';
+
+const DATE_FILTER_LABELS: Record<DateFilterPreset, string> = {
+	all: 'Tout',
+	today: "Aujourd'hui",
+	yesterday: 'Hier',
+	'day-before': 'Avant-hier',
+	'this-week': 'Cette semaine',
+	'this-month': 'Ce mois-ci',
+	'last-month': 'Le mois dernier',
+	'3-months': '3 mois',
+	'6-months': '6 mois',
+	'this-year': 'Cette année',
+	'last-year': "L'an dernier",
+	'3-years': '3 ans',
+	custom: 'Choisir…',
+};
+
+const DATE_FILTER_PRESETS: DateFilterPreset[] = [
+	'all',
+	'today',
+	'yesterday',
+	'day-before',
+	'this-week',
+	'this-month',
+	'last-month',
+	'3-months',
+	'6-months',
+	'this-year',
+	'last-year',
+	'3-years',
+	'custom',
+];
 
 @Component({
 	selector: 'app-map',
@@ -61,11 +108,17 @@ export class Map {
 	zoom = signal(0);
 	isDevMode = isDevMode();
 	focusStats = signal<{ trips: number; km: number; hex: number; pct: number; name?: string } | null>(null);
+	dateFilter = signal<DateFilterPreset>('all');
+	customFrom = signal('');
+	customTo = signal('');
+	readonly dateFilterLabels = DATE_FILTER_LABELS;
+	dateFilterPresets = signal<DateFilterPreset[]>(DATE_FILTER_PRESETS);
 
 	private map: maplibregl.Map | null = null;
 	private cellsByResolution: Partial<Record<H3Resolution, H3Data>> = {};
 	private currentResolution: H3Resolution | null = null;
 	private currentMode: Mode | null = null;
+	private allTripsWithCoords: TripWithCoords[] = [];
 	private tripsWithCoords: TripWithCoords[] = [];
 	private departments: GeoJSON.FeatureCollection | null = null;
 	private enrichedDepts: GeoJSON.FeatureCollection | null = null;
@@ -88,6 +141,241 @@ export class Map {
 	private openPopupCell: string | null = null;
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
+
+	selectFilter(filter: DateFilterPreset): void {
+		this.dateFilter.set(filter);
+		if (filter === 'custom') {
+			const yyyy = new Date().getFullYear();
+			if (!this.customFrom()) {
+				this.customFrom.set(`${yyyy}-01-01`);
+			}
+			if (!this.customTo()) {
+				this.customTo.set(`${yyyy}-12-31`);
+			}
+			this.applyDateFilter();
+			return;
+		}
+		this.applyDateFilter();
+	}
+
+	updateCustomDate(type: 'from' | 'to', value: string): void {
+		if (type === 'from') this.customFrom.set(value);
+		else this.customTo.set(value);
+		this.applyDateFilter();
+	}
+
+	private computeOldestTripDate(): Date | null {
+		if (!this.allTripsWithCoords.length) return null;
+		return this.allTripsWithCoords.reduce<Date>((oldest, t) => {
+			const d = new Date(t.startTime);
+			return d < oldest ? d : oldest;
+		}, new Date(this.allTripsWithCoords[0].startTime));
+	}
+
+	private updateAvailablePresets(): void {
+		const oldest = this.computeOldestTripDate();
+		if (!oldest) {
+			this.dateFilterPresets.set(DATE_FILTER_PRESETS);
+			return;
+		}
+		const available = DATE_FILTER_PRESETS.filter((preset) => {
+			if (preset === 'all' || preset === 'custom') return true;
+
+			// Sur mobile, on retire certains filtres pour éviter d'avoir trop de chips
+			if (
+				this.isMobile &&
+				['day-before', 'last-month', '3-months', '6-months', 'last-year', '3-years'].includes(preset)
+			) {
+				return false;
+			}
+
+			const range = this.getDateRange(preset);
+			if (!range) return false;
+			const now = new Date();
+			const dataSpan = now.getTime() - oldest.getTime();
+			const presetSpan = now.getTime() - range.from.getTime();
+			const maxSpan = Math.max(dataSpan * 2, 183 * 86400000); // Au moins 6 mois, ou 2x l'ancienneté
+
+			// 1. Le filtre ne doit pas proposer une période beaucoup trop grande par rapport aux données
+			if (presetSpan > maxSpan) {
+				return false;
+			}
+
+			// 2. N'afficher le preset que s'il y a au moins un trajet dans cette plage de temps
+			return this.allTripsWithCoords.some((t) => {
+				const d = new Date(t.startTime);
+				return d >= range.from && d <= range.to;
+			});
+		});
+		this.dateFilterPresets.set(available);
+	}
+
+	private getDateRange(filter: DateFilterPreset): { from: Date; to: Date } | null {
+		if (filter === 'all') return null;
+
+		const now = new Date();
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+		if (filter === 'custom') {
+			let from: Date;
+			if (this.customFrom()) {
+				from = new Date(this.customFrom());
+			} else {
+				from = new Date(now.getFullYear(), 0, 1);
+			}
+
+			let to: Date;
+			if (this.customTo()) {
+				to = new Date(this.customTo());
+			} else {
+				to = new Date(now.getFullYear(), 11, 31);
+			}
+			to.setHours(23, 59, 59, 999);
+			return { from, to };
+		}
+		switch (filter) {
+			case 'today': {
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from: today, to };
+			}
+			case 'yesterday': {
+				const from = new Date(today);
+				from.setDate(from.getDate() - 1);
+				const to = new Date(from);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'day-before': {
+				const from = new Date(today);
+				from.setDate(from.getDate() - 2);
+				const to = new Date(from);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'this-week': {
+				const from = new Date(today);
+				const dow = today.getDay();
+				from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'this-month': {
+				const from = new Date(today.getFullYear(), today.getMonth(), 1);
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'last-month': {
+				const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+				const to = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
+				return { from, to };
+			}
+			case '3-months': {
+				const from = new Date(today);
+				from.setMonth(from.getMonth() - 3);
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case '6-months': {
+				const from = new Date(today);
+				from.setMonth(from.getMonth() - 6);
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'this-year': {
+				const from = new Date(today.getFullYear(), 0, 1);
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			case 'last-year': {
+				const from = new Date(today.getFullYear() - 1, 0, 1);
+				const to = new Date(today.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+				return { from, to };
+			}
+			case '3-years': {
+				const from = new Date(today);
+				from.setFullYear(from.getFullYear() - 3);
+				const to = new Date(today);
+				to.setHours(23, 59, 59, 999);
+				return { from, to };
+			}
+			default:
+				return null;
+		}
+	}
+
+	private lockDeptFocus = false;
+
+	private applyDateFilter(): void {
+		this.lockDeptFocus = true;
+		const range = this.getDateRange(this.dateFilter());
+		this.tripsWithCoords = range
+			? this.allTripsWithCoords.filter((t) => {
+					const d = new Date(t.startTime);
+					return d >= range.from && d <= range.to;
+				})
+			: this.allTripsWithCoords;
+
+		this.tripCount.set(this.tripsWithCoords.length);
+		this.totalKm.set(Math.round(this.tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000));
+
+		const tripData = this.tripsWithCoords.map((t) => ({
+			coords: t.coords,
+			date: t.startTime.substring(0, 10),
+		}));
+		this.cellsByResolution = { 6: this.h3.computeResolution(tripData, 6) };
+		this.hexagonCount.set(Object.keys(this.cellsByResolution[6]!.counts).length);
+
+		this.enrichedDepts = null;
+
+		if (!this.map?.getLayer('overlay-fill')) {
+			this.lockDeptFocus = false;
+			return;
+		}
+
+		if (this.map.getSource('all-trips')) {
+			(this.map.getSource('all-trips') as maplibregl.GeoJSONSource).setData(this.buildAllTripsGeoJSON());
+		}
+
+		// Force la mise à jour des couches de départements avec les nouvelles données
+		this.ensureDeptLayers();
+
+		if (this.focusedDeptFeature) {
+			// On met à jour les stats du département focus avec les nouveaux trajets
+			const code = this.focusedDeptFeature.properties?.['code'];
+			const depts = this.enrichedDepts as GeoJSON.FeatureCollection | null;
+			const enriched = depts?.features.find((f) => f.properties?.['code'] === code);
+			this.setDeptStats(
+				(enriched || this.focusedDeptFeature) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+			);
+		} else {
+			this.focusStats.set(null);
+		}
+
+		// Préserve le focus du département lors du re-rendu dans updateView
+		const wasFitting = this.isFittingDept;
+		this.isFittingDept = true;
+
+		this.currentMode = null;
+		this.currentResolution = null;
+		this.updateView();
+
+		this.isFittingDept = wasFitting;
+
+		// On relâche le verrou après un cycle asynchrone (au cas où une frame d'animation de la map lancerait une vérification)
+		setTimeout(() => {
+			this.lockDeptFocus = false;
+		}, 100);
+
+		if (!this.focusedDeptFeature && this.tripsWithCoords.length > 0) {
+			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+		}
+	}
 
 	async takeScreenshot(): Promise<void> {
 		if (!this.map) return;
@@ -127,6 +415,11 @@ export class Map {
 		}
 	}
 	focusKmFormatted = computed(() => this.formatKm(this.focusStats()?.km ?? 0));
+
+	@HostListener('window:resize')
+	onResize(): void {
+		this.updateAvailablePresets();
+	}
 
 	constructor() {
 		afterNextRender(() => this.initMap());
@@ -240,7 +533,9 @@ export class Map {
 		hexagonCount,
 	}: DemoData): void {
 		this.departments = departments;
-		this.tripsWithCoords = tripsWithCoords as TripWithCoords[];
+		this.allTripsWithCoords = tripsWithCoords as TripWithCoords[];
+		this.tripsWithCoords = this.allTripsWithCoords;
+		this.updateAvailablePresets();
 		this.cellsByResolution = cellsByResolution;
 		this.tripCount.set(tripCount);
 		this.totalKm.set(totalKm);
@@ -290,12 +585,14 @@ export class Map {
 					this.tripCount.set(allTrips.length);
 					this.totalKm.set(Math.round(allTrips.reduce((sum, t) => sum + t.distance, 0) / 1000));
 
-					this.tripsWithCoords = allTrips
+					this.allTripsWithCoords = allTrips
 						.map((trip) => ({
 							...trip,
 							coords: this.polyline.extractFromStaticImage(trip.staticImage),
 						}))
 						.filter((t) => t.coords.length > 0) as TripWithCoords[];
+					this.tripsWithCoords = this.allTripsWithCoords;
+					this.updateAvailablePresets();
 
 					this.logger.log('Map', `computing H3 cells for resolution 6`);
 					const tripData = this.tripsWithCoords.map((t) => ({
@@ -959,6 +1256,10 @@ export class Map {
 	}
 
 	private clearDeptFocus(): void {
+		if (this.lockDeptFocus) {
+			this.logger.log('Map', '[CLEARFOCUS] Prevented by lockDeptFocus');
+			return;
+		}
 		this.logger.log(
 			'Map',
 			`[CLEARFOCUS] focusedDept was=${this.focusedDeptFeature?.properties?.['code'] ?? 'null'} dragHandler=${this.focusDragHandler ? 'set' : 'null'}`,

@@ -83,28 +83,103 @@
 @keyframes stats-in {
 	from {
 		opacity: 0;
-		transform: translateX(-50%) scale(0.85);
+		transform: scale(0.85);
 	}
+
 	to {
 		opacity: 1;
-		transform: translateX(-50%) scale(1);
+		transform: scale(1);
+	}
+}
+
+// Feature: bottom UI wrapper (filter bar + stats panel)
+.bottom-ui {
+	position: absolute;
+	bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1rem));
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.4rem;
+	pointer-events: none;
+	width: min(calc(100vw - 2rem), 720px);
+}
+
+// Feature: filter chips bar
+.filter-bar {
+	animation: stats-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.3rem;
+	max-width: 80vw;
+	width: 80vw;
+	padding: 0.15rem 0;
+	pointer-events: auto;
+}
+
+.filter-chip {
+	flex-shrink: 0;
+	white-space: nowrap;
+	background: rgba(0, 0, 0, 0.6);
+	backdrop-filter: blur(6px);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 2rem;
+	color: rgba(255, 255, 255, 0.6);
+	padding: 0.3rem 0.8rem;
+	font-size: 0.72rem;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s,
+		border-color 0.15s;
+
+	&:hover {
+		background: rgba(253, 179, 0, 0.2);
+		color: #fff;
+		border-color: rgba(253, 179, 0, 0.4);
+	}
+
+	&.active {
+		background: rgba(253, 179, 0, 0.9);
+		color: #000;
+		border-color: #fdb300;
+		font-weight: 600;
+	}
+
+	@media (max-width: 480px) {
+		font-size: 0.65rem;
+		padding: 0.25rem 0.65rem;
+	}
+}
+
+// Feature: custom date inputs in filter bar
+.date-input-chip {
+	font-family: inherit;
+	outline: none;
+	background: rgba(0, 0, 0, 0.75);
+
+	&::-webkit-calendar-picker-indicator {
+		filter: invert(1) opacity(0.6);
+		cursor: pointer;
+	}
+
+	&:focus {
+		border-color: rgba(253, 179, 0, 0.5);
 	}
 }
 
 // Feature: stats panel
 .stats-panel {
-	position: absolute;
-	bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1rem));
-	left: 50%;
-	transform: translateX(-50%);
 	animation: stats-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-	z-index: 10;
 	display: flex;
 	align-items: center;
 	flex-wrap: nowrap;
 	justify-content: center;
 	gap: 0.5rem;
-	max-width: calc(100vw - 2rem);
 	background: rgba(0, 0, 0, 0.65);
 	backdrop-filter: blur(6px);
 	border: 1px solid rgba(253, 179, 0, 0.25);
