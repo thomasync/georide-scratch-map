@@ -23,7 +23,7 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 
 const DEPT_MODE_ZOOM_THRESHOLD = 7.5;
-const DEPT_FOCUS_EXIT_ZOOM = 9;
+const DEPT_FOCUS_EXIT_DELTA = 0.5;
 const DEPT_RESOLUTION: H3Resolution = 6;
 const POLYLINE_MODE_ZOOM_THRESHOLD = 13;
 
@@ -80,6 +80,7 @@ export class Map {
 	private hoveredDeptId: string | null = null;
 	private restoringStyle = false;
 	private isFittingDept = false;
+	private focusEntryZoom: number | null = null;
 	private hexTapTimer: ReturnType<typeof setTimeout> | null = null;
 	private deptTapTimer: ReturnType<typeof setTimeout> | null = null;
 	private lastCanvasTouchStart = 0;
@@ -515,10 +516,20 @@ export class Map {
 			'Map',
 			`[UPDATEVIEW] zoom=${zoom.toFixed(2)} res=${resolution} focusedDept=${this.focusedDeptFeature?.properties?.['code'] ?? 'null'} restoringStyle=${this.restoringStyle} currentMode=${this.currentMode}`,
 		);
-		const focusExitZoom = this.isMobile ? this.deptThreshold : DEPT_FOCUS_EXIT_ZOOM;
-		if (this.focusedDeptFeature && zoom < focusExitZoom && !this.restoringStyle && !this.isFittingDept) {
-			this.logger.log('Map', `[UPDATEVIEW] zoom ${zoom.toFixed(2)} < ${DEPT_FOCUS_EXIT_ZOOM} → clearDeptFocus`);
+		if (
+			this.focusedDeptFeature &&
+			this.focusEntryZoom !== null &&
+			this.focusEntryZoom - zoom > DEPT_FOCUS_EXIT_DELTA &&
+			!this.restoringStyle &&
+			!this.isFittingDept
+		) {
+			this.logger.log(
+				'Map',
+				`[UPDATEVIEW] delta ${(this.focusEntryZoom - zoom).toFixed(2)} > ${DEPT_FOCUS_EXIT_DELTA} → clearDeptFocus`,
+			);
 			this.clearDeptFocus();
+			this.currentMode = null;
+			this.currentResolution = null;
 		}
 		const polylineThreshold = this.isMobile ? 12 : POLYLINE_MODE_ZOOM_THRESHOLD;
 		const mode: Mode =
@@ -902,6 +913,7 @@ export class Map {
 		// After the fitBounds animation ends, any subsequent drag exits focus mode
 		this.map!.once('moveend', () => {
 			this.isFittingDept = false;
+			this.focusEntryZoom = this.map!.getZoom();
 			this.logger.log(
 				'Map',
 				`[MOVEEND] fired, focusedDept=${this.focusedDeptFeature?.properties?.['code'] ?? 'null'}, zoom=${this.map!.getZoom().toFixed(2)}, maskVisible=${this.map!.getLayoutProperty('dept-focus-mask', 'visibility')}`,
@@ -952,6 +964,7 @@ export class Map {
 			`[CLEARFOCUS] focusedDept was=${this.focusedDeptFeature?.properties?.['code'] ?? 'null'} dragHandler=${this.focusDragHandler ? 'set' : 'null'}`,
 		);
 		this.isFittingDept = false;
+		this.focusEntryZoom = null;
 		this.focusedDeptFeature = null;
 		this.focusStats.set(null);
 		if (this.focusDragHandler) {
