@@ -7,6 +7,7 @@
 #map {
 	width: 100%;
 	height: 100%;
+	background-color: #eec459;
 }
 
 // Feature: vignette
@@ -20,6 +21,19 @@
 	@media (max-width: 768px) {
 		background: radial-gradient(circle at center, transparent 45%, rgba(0, 0, 0, 0.22) 100%);
 	}
+}
+
+.demo-watermark {
+	position: absolute;
+	bottom: max(8rem, calc(env(safe-area-inset-bottom) + 7rem));
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 30;
+	color: rgba(255, 255, 255, 0.15);
+	font-weight: 900;
+	font-size: clamp(3rem, 10vw, 8rem);
+	pointer-events: none;
+	user-select: none;
 }
 
 // Feature: controls

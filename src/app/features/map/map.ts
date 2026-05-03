@@ -93,7 +93,7 @@ export class Map {
 	private router = inject(Router);
 	mapSettings = inject(MapSettingsService);
 
-	private get isDemo(): boolean {
+	get isDemo(): boolean {
 		return this.router.url.startsWith('/demo');
 	}
 
@@ -413,6 +413,11 @@ export class Map {
 			this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
 		}
 	}
+
+	goToLogin(): void {
+		this.router.navigate(['/login']);
+	}
+
 	focusKmFormatted = computed(() => this.formatKm(this.focusStats()?.km ?? 0));
 
 	@HostListener('window:resize')
