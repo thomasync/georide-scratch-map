@@ -22,11 +22,8 @@ import { MAP_STYLES, ThemeService } from '../../core/services/theme';
 import { ScreenshotService } from '../../core/services/screenshot';
 import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
-
-const DEPT_MODE_ZOOM_THRESHOLD = 7.5;
-const DEPT_FOCUS_EXIT_DELTA = 0.5;
-const DEPT_RESOLUTION: H3Resolution = 6;
-const POLYLINE_MODE_ZOOM_THRESHOLD = 13;
+import { MapSettingsService } from '../../core/services/map-settings';
+import { DevBoxComponent } from './dev-box';
 
 type Mode = 'hex' | 'dept' | 'polyline';
 type TripWithCoords = Trip & { coords: [number, number][] };
@@ -79,7 +76,7 @@ const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 
 @Component({
 	selector: 'app-map',
-	imports: [],
+	imports: [DevBoxComponent],
 	templateUrl: './map.html',
 	styleUrl: './map.scss',
 })
@@ -94,6 +91,7 @@ export class Map {
 	private screenshot = inject(ScreenshotService);
 	private demo = inject(DemoService);
 	private router = inject(Router);
+	mapSettings = inject(MapSettingsService);
 
 	private get isDemo(): boolean {
 		return this.router.url.startsWith('/demo');
@@ -328,8 +326,9 @@ export class Map {
 			coords: t.coords,
 			date: t.startTime.substring(0, 10),
 		}));
-		this.cellsByResolution = { 6: this.h3.computeResolution(tripData, 6) };
-		this.hexagonCount.set(Object.keys(this.cellsByResolution[6]!.counts).length);
+		const res = this.mapSettings.deptResolution() as H3Resolution;
+		this.cellsByResolution = { [res]: this.h3.computeResolution(tripData, res) };
+		this.hexagonCount.set(Object.keys(this.cellsByResolution[res]!.counts).length);
 
 		this.enrichedDepts = null;
 
@@ -396,18 +395,18 @@ export class Map {
 		const maskVisible = this.map.getLayoutProperty('dept-focus-mask', 'visibility') === 'visible';
 		if (maskVisible) {
 			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity-transition', { duration: 0, delay: 0 });
-			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', 0.07);
+			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', this.mapSettings.deptMaskOpacityScreenshot());
 		}
 		await this.screenshot.capture(this.map, { items: this.loading() || this.error() ? [] : items });
 		if (maskVisible) {
-			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', 0.2);
+			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', this.mapSettings.deptMaskOpacityDefault());
 			this.map.setPaintProperty('dept-focus-mask', 'fill-opacity-transition', { duration: 300, delay: 0 });
 		}
 	}
 
 	resetView(): void {
 		if (!this.map) return;
-		const targetZoom = this.isMobile ? 5 : 6;
+		const targetZoom = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
 		if (this.map.getZoom() <= targetZoom + 0.1) {
 			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 		} else {
@@ -425,7 +424,71 @@ export class Map {
 		afterNextRender(() => this.initMap());
 
 		effect(() => {
+			const res = this.mapSettings.deptResolution() as H3Resolution;
+			untracked(() => {
+				if (this.tripsWithCoords.length > 0 && !this.cellsByResolution[res]) {
+					const tripData = this.tripsWithCoords.map((t) => ({
+						coords: t.coords,
+						date: t.startTime.substring(0, 10),
+					}));
+					this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
+					this.hexagonCount.set(Object.keys(this.cellsByResolution[res]!.counts).length);
+					if (this.currentResolution) {
+						this.currentResolution = null;
+						this.updateView();
+					}
+				}
+			});
+		});
+
+		effect(() => {
+			const start = this.mapSettings.cityLabelsFadeStart();
+			const end = this.mapSettings.cityLabelsFadeEnd();
+			untracked(() => {
+				if (this.map) this.hideCityLabels();
+			});
+		});
+
+		effect(() => {
+			const opacity = this.mapSettings.deptMaskOpacityDefault();
+			untracked(() => {
+				if (this.map && this.map.getLayer('dept-focus-mask')) {
+					this.map.setPaintProperty('dept-focus-mask', 'fill-opacity', opacity);
+				}
+			});
+		});
+
+		effect(() => {
+			const thresholds = [
+				this.mapSettings.deptModeZoomThresholdDesk(),
+				this.mapSettings.deptModeZoomThresholdMob(),
+				this.mapSettings.polylineModeZoomThresholdDesk(),
+				this.mapSettings.polylineModeZoomThresholdMob(),
+				this.mapSettings.deptFocusExitDelta(),
+			];
+			untracked(() => {
+				if (this.map) {
+					this.currentResolution = null;
+					this.currentMode = null;
+					this.updateView();
+				}
+			});
+		});
+
+		effect(() => {
+			const minZ = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
+			const maxZ = this.mapSettings.maxZoom();
+			untracked(() => {
+				if (this.map) {
+					this.map.setMinZoom(minZ);
+					this.map.setMaxZoom(maxZ);
+				}
+			});
+		});
+
+		effect(() => {
 			const style = MAP_STYLES[this.theme.theme()];
+
 			if (this.map && !untracked(() => this.loading())) {
 				this.logger.log(
 					'Map',
@@ -461,7 +524,9 @@ export class Map {
 	}
 
 	private get deptThreshold(): number {
-		return this.isMobile ? 6.8 : DEPT_MODE_ZOOM_THRESHOLD;
+		return this.isMobile
+			? this.mapSettings.deptModeZoomThresholdMob()
+			: this.mapSettings.deptModeZoomThresholdDesk();
 	}
 
 	private initMap(): void {
@@ -472,7 +537,8 @@ export class Map {
 			style: MAP_STYLES[this.theme.theme()],
 			center: [2.3, 46.2],
 			zoom: 8,
-			minZoom: this.isMobile ? 5 : 6,
+			minZoom: this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk(),
+			maxZoom: this.mapSettings.maxZoom(),
 			maxBounds: [
 				[-20, 30],
 				[35, 60],
@@ -492,7 +558,7 @@ export class Map {
 				'touchstart',
 				() => {
 					const now = Date.now();
-					if (now - this.lastCanvasTouchStart < 350) {
+					if (now - this.lastCanvasTouchStart < this.mapSettings.doubleTapDelay()) {
 						if (this.hexTapTimer) {
 							clearTimeout(this.hexTapTimer);
 							this.hexTapTimer = null;
@@ -599,13 +665,18 @@ export class Map {
 						coords: t.coords,
 						date: t.startTime.substring(0, 10),
 					}));
-					this.cellsByResolution[6] = this.h3.computeResolution(tripData, 6);
+					const res = this.mapSettings.deptResolution() as H3Resolution;
+					this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
 					this.logger.log(
 						'Map',
-						`resolution 6: ${Object.keys(this.cellsByResolution[6].counts).length} cells`,
+						`resolution ${res}: ${Object.keys(this.cellsByResolution[res].counts).length} cells`,
 					);
 
-					this.hexagonCount.set(Object.keys(this.cellsByResolution[DEPT_RESOLUTION]?.counts ?? {}).length);
+					this.hexagonCount.set(
+						Object.keys(
+							this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution]?.counts ?? {},
+						).length,
+					);
 
 					this.addLayers();
 					this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
@@ -621,7 +692,15 @@ export class Map {
 	private hideCityLabels(): void {
 		for (const layer of this.map!.getStyle().layers) {
 			if (layer.type !== 'symbol') continue;
-			this.map!.setPaintProperty(layer.id, 'text-opacity', ['interpolate', ['linear'], ['zoom'], 6.5, 0, 7, 1]);
+			this.map!.setPaintProperty(layer.id, 'text-opacity', [
+				'interpolate',
+				['linear'],
+				['zoom'],
+				this.mapSettings.cityLabelsFadeStart(),
+				0,
+				this.mapSettings.cityLabelsFadeEnd(),
+				1,
+			]);
 		}
 	}
 
@@ -661,7 +740,7 @@ export class Map {
 				id: 'dept-focus-mask',
 				type: 'fill',
 				source: 'dept-focus-mask',
-				paint: { 'fill-color': '#000000', 'fill-opacity': 0.2 },
+				paint: { 'fill-color': '#000000', 'fill-opacity': this.mapSettings.deptMaskOpacityDefault() },
 				layout: { visibility: 'none' },
 			});
 			this.map.on('click', 'dept-focus-mask', (e) => {
@@ -816,19 +895,21 @@ export class Map {
 		if (
 			this.focusedDeptFeature &&
 			this.focusEntryZoom !== null &&
-			this.focusEntryZoom - zoom > DEPT_FOCUS_EXIT_DELTA &&
+			this.focusEntryZoom - zoom > this.mapSettings.deptFocusExitDelta() &&
 			!this.restoringStyle &&
 			!this.isFittingDept
 		) {
 			this.logger.log(
 				'Map',
-				`[UPDATEVIEW] delta ${(this.focusEntryZoom - zoom).toFixed(2)} > ${DEPT_FOCUS_EXIT_DELTA} → clearDeptFocus`,
+				`[UPDATEVIEW] delta ${(this.focusEntryZoom - zoom).toFixed(2)} > ${this.mapSettings.deptFocusExitDelta()} → clearDeptFocus`,
 			);
 			this.clearDeptFocus();
 			this.currentMode = null;
 			this.currentResolution = null;
 		}
-		const polylineThreshold = this.isMobile ? 12 : POLYLINE_MODE_ZOOM_THRESHOLD;
+		const polylineThreshold = this.isMobile
+			? this.mapSettings.polylineModeZoomThresholdMob()
+			: this.mapSettings.polylineModeZoomThresholdDesk();
 		const mode: Mode =
 			zoom <= this.deptThreshold
 				? 'dept'
@@ -907,12 +988,12 @@ export class Map {
 		if (!this.map || !this.departments) return;
 
 		if (!this.enrichedDepts) {
-			const data = this.cellsByResolution[DEPT_RESOLUTION];
+			const data = this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution];
 			if (!data) return;
 			this.enrichedDepts = this.h3.enrichDepartmentsWithCoverage(
 				this.departments,
 				data.counts,
-				DEPT_RESOLUTION,
+				this.mapSettings.deptResolution() as H3Resolution,
 				data.cellToIndices,
 			);
 			this.logger.log('Map', `dept layers ready: ${this.departments.features.length} depts enriched`);
@@ -1078,7 +1159,8 @@ export class Map {
 		const feature = e.features?.[0];
 		if (!feature) return;
 		const cell = feature.properties?.['cell'] as string;
-		const data = this.cellsByResolution[this.currentResolution ?? DEPT_RESOLUTION];
+		const data =
+			this.cellsByResolution[this.currentResolution ?? (this.mapSettings.deptResolution() as H3Resolution)];
 		if (!cell || !data) return;
 		const tripIndices = [...new Set(data.cellToIndices[cell] ?? [])];
 		const trips = tripIndices.map((i) => this.tripsWithCoords[i]).filter(Boolean);
@@ -1205,7 +1287,11 @@ export class Map {
 
 		this.logger.log('Map', `[DEPTCLICK] fitBounds → zoom currently ${this.map!.getZoom().toFixed(2)}`);
 		this.isFittingDept = true;
-		this.map!.fitBounds(this.getDeptBounds(geom), { padding: 40, maxZoom: 10, speed: 2 });
+		this.map!.fitBounds(this.getDeptBounds(geom), {
+			padding: 40,
+			maxZoom: this.mapSettings.fitDeptMaxZoom(),
+			speed: 2,
+		});
 
 		// After the fitBounds animation ends, any subsequent drag exits focus mode
 		this.map!.once('moveend', () => {
@@ -1232,9 +1318,9 @@ export class Map {
 
 	private setDeptStats(feature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>): void {
 		const props = feature.properties as { pct?: number; h3Visited?: number } | undefined;
-		const data = this.cellsByResolution[DEPT_RESOLUTION];
+		const data = this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution];
 		if (!data) return;
-		const deptCells = this.h3.getDepartmentCells(feature, DEPT_RESOLUTION);
+		const deptCells = this.h3.getDepartmentCells(feature, this.mapSettings.deptResolution() as H3Resolution);
 		const tripIndices = new Set<number>();
 		for (const c of deptCells) {
 			for (const idx of data.cellToIndices[c] ?? []) tripIndices.add(idx);
@@ -1415,7 +1501,7 @@ export class Map {
 	}
 
 	private initViewAfterLoad(coords: [number, number][][]): void {
-		const fitMaxZoom = 8;
+		const fitMaxZoom = this.mapSettings.fitToVisitedMaxZoom();
 		this.fitToVisited(coords, fitMaxZoom, 1.2, false);
 		this.map!.once('idle', () => {
 			const all = coords.flat();
@@ -1444,7 +1530,12 @@ export class Map {
 		});
 	}
 
-	private fitToVisited(tripCoords: [number, number][][], maxZoom = 8, speed = 1.2, animate = true): void {
+	private fitToVisited(
+		tripCoords: [number, number][][],
+		maxZoom = this.mapSettings.fitToVisitedMaxZoom(),
+		speed = 1.2,
+		animate = true,
+	): void {
 		const all = tripCoords.flat();
 		if (!all.length) return;
 		const lats = all.map((c) => c[0]);
