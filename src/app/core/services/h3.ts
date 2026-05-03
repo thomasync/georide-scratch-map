@@ -294,7 +294,14 @@ export class H3Service {
 		}
 
 		const world: polygonClipping.Polygon = [WORLD_RING as [number, number][]];
-		const diff = polygonClipping.difference(world, ...deptPolys);
+
+		let diff: polygonClipping.MultiPolygon;
+		if (deptPolys.length > 0) {
+			const unionedDepts = polygonClipping.union(deptPolys[0], ...deptPolys.slice(1));
+			diff = polygonClipping.difference(world, unionedDepts);
+		} else {
+			diff = [world];
+		}
 
 		return {
 			type: 'Feature',
