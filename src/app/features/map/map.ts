@@ -582,6 +582,9 @@ export class Map {
 			if (this.selectedTripCoords) {
 				this.justClosedTrip = true;
 				this.clearTripLine();
+				setTimeout(() => {
+					this.justClosedTrip = false;
+				}, 0);
 			}
 		});
 
