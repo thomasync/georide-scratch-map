@@ -1,5 +1,7 @@
 # GeoRide Scratch Map
 
+![Banner](public/banner2.png)
+
 Scratch map des trajets moto GeoRide.
 
 Visualise tous les trajets moto unifiés sur une carte. Chaque zone visitée révèle la carte, comme un scratch à gratter.
