@@ -1111,8 +1111,24 @@ export class Map {
 				layout: {
 					'text-field': ['concat', ['to-string', ['get', 'pct']], '%'],
 					'text-size': this.isMobile
-						? ['interpolate', ['linear'], ['get', 'h3Total'], 1, 7, 5, 9, 15, 11, 30, 13, 60, 16]
-						: ['interpolate', ['linear'], ['get', 'h3Total'], 1, 10, 5, 13, 15, 16, 30, 20, 60, 24],
+						? [
+								'interpolate',
+								['linear'],
+								['zoom'],
+								5,
+								['interpolate', ['linear'], ['get', 'h3Total'], 1, 4, 5, 5, 15, 6, 30, 7, 60, 8],
+								6.8,
+								['interpolate', ['linear'], ['get', 'h3Total'], 1, 7, 5, 9, 15, 11, 30, 13, 60, 16],
+							]
+						: [
+								'interpolate',
+								['linear'],
+								['zoom'],
+								6,
+								['interpolate', ['linear'], ['get', 'h3Total'], 1, 6, 5, 7, 15, 9, 30, 11, 60, 13],
+								7.5,
+								['interpolate', ['linear'], ['get', 'h3Total'], 1, 10, 5, 13, 15, 16, 30, 20, 60, 24],
+							],
 					'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
 					'text-anchor': 'center',
 					'text-allow-overlap': true,
@@ -1123,9 +1139,11 @@ export class Map {
 					// fill-opacity: 0.55 at pct=1 → 0 at pct=100 (formula: 0.55*(1-(pct-1)/99))
 					// at pct=40 fill is still ~0.33 (orange) → orange text would be invisible
 					// transition to orange only at pct=75 where fill drops to ~0.14 (barely orange)
-					'text-color': ['step', ['get', 'pct'], '#ffffff', 75, '#fdb300'],
-					'text-halo-color': ['step', ['get', 'pct'], 'rgba(0,0,0,0.45)', 75, 'rgba(255,255,255,0.55)'],
-					'text-halo-width': 1,
+					'text-color': this.theme.isDark() ? ['step', ['get', 'pct'], '#ffffff', 75, '#fdb300'] : '#6b4200',
+					'text-halo-color': this.theme.isDark()
+						? ['step', ['get', 'pct'], 'rgba(0,0,0,0.45)', 75, 'rgba(255,255,255,0.55)']
+						: 'rgba(0,0,0,0)',
+					'text-halo-width': this.theme.isDark() ? 1 : 0,
 				},
 			});
 		} else {

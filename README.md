@@ -34,7 +34,7 @@ L'ensemble de la scratch map repose sur seulement 3 appels API existants : récu
 - [ ] Slider timeline pour naviguer dans le temps
 - [ ] Liste des villes et villages les plus visités
 - [ ] Intégrer une source de données externe pour suggérer les plus beaux cols, villages et routes à faire
-- [ ] Rendre l'app PWA
+- [x] Rendre l'app PWA
 - [ ] Afficher en temps réel la position de l'utilisateur (via géolocalisation navigateur)
 
 ## Stack
