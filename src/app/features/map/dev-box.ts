@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, EventEmitter, inject, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../core/services/map-settings';
@@ -16,6 +16,13 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 				<div class="dev-box-actions" *ngIf="isExpanded">
 					<button (click)="reload()" class="btn-action">Reload</button>
 					<button (click)="settings.resetAll()" class="btn-action">Reset</button>
+					<button
+						(click)="simulateNewTrip.emit()"
+						class="btn-action btn-debug"
+						title="Retire le dernier trajet des cellules connues puis recharge"
+					>
+						New cells
+					</button>
 				</div>
 			</div>
 
@@ -98,6 +105,14 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 			}
 			.btn-action:hover {
 				background-color: #e5e7eb;
+			}
+			.btn-debug {
+				color: #b45309;
+				border-color: #fde68a;
+				background-color: #fffbeb;
+			}
+			.btn-debug:hover {
+				background-color: #fef3c7;
 			}
 			.dev-box-content {
 				display: flex;
@@ -183,6 +198,8 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 export class DevBoxComponent {
 	settings = inject(MapSettingsService);
 	isExpanded = localStorage.getItem('georide_dev_box_expanded') !== 'false';
+
+	@Output() simulateNewTrip = new EventEmitter<void>();
 
 	toggleExpand(): void {
 		this.isExpanded = !this.isExpanded;

@@ -138,6 +138,14 @@ export class Map {
 	private justClosedTrip = false;
 	private openPopupCell: string | null = null;
 
+	private readonly SEEN_CELLS_KEY_R7 = 'georide_seen_cells_r7_v1';
+	private readonly NEW_CELLS_FIRST_SEEN_KEY = 'georide_new_cells_first_seen_v1';
+	private readonly NEW_CELLS_DURATION_MS = 10 * 60 * 1000;
+	private newCellsR7 = new Set<string>();
+	private newCellsR7Computed = false;
+	private newCellsTimer: ReturnType<typeof setTimeout> | null = null;
+	private pendingSeenR7 = new Set<string>();
+
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
 	selectFilter(filter: DateFilterPreset): void {
@@ -595,6 +603,7 @@ export class Map {
 		this.destroyRef.onDestroy(() => {
 			this.logger.log('Map', 'destroying map');
 			this.map?.remove();
+			if (this.newCellsTimer) clearTimeout(this.newCellsTimer);
 		});
 	}
 
@@ -821,6 +830,42 @@ export class Map {
 			});
 		}
 
+		// --- New cells highlight (cells discovered since last visit) ---
+		if (!this.map.getSource('new-cells')) {
+			const glowColor = this.theme.isDark() ? '#fdb300' : '#ffffff';
+			this.map.addSource('new-cells', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'new-cells-glow-3',
+				type: 'line',
+				source: 'new-cells',
+				paint: { 'line-color': glowColor, 'line-width': 20, 'line-opacity': 0.07, 'line-blur': 10 },
+			});
+			this.map.addLayer({
+				id: 'new-cells-glow-2',
+				type: 'line',
+				source: 'new-cells',
+				paint: { 'line-color': glowColor, 'line-width': 12, 'line-opacity': 0.18, 'line-blur': 5 },
+			});
+			this.map.addLayer({
+				id: 'new-cells-glow-1',
+				type: 'line',
+				source: 'new-cells',
+				paint: { 'line-color': glowColor, 'line-width': 5, 'line-opacity': 0.55, 'line-blur': 2 },
+			});
+			this.map.addLayer({
+				id: 'new-cells-line',
+				type: 'line',
+				source: 'new-cells',
+				paint: { 'line-color': glowColor, 'line-width': 1.5, 'line-opacity': 1.0 },
+			});
+			this.updateNewCellsLayer();
+		} else {
+			this.updateNewCellsLayer();
+		}
+
 		// --- All trips polylines (polyline mode) ---
 		if (!this.map.getSource('all-trips')) {
 			this.map.addSource('all-trips', { type: 'geojson', data: this.buildAllTripsGeoJSON() });
@@ -959,6 +1004,11 @@ export class Map {
 			this.popup?.remove();
 		}
 
+		const newCellsVisibility = mode === 'hex' && resolution === 7 ? 'visible' : 'none';
+		for (const id of ['new-cells-glow-3', 'new-cells-glow-2', 'new-cells-glow-1', 'new-cells-line']) {
+			if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', newCellsVisibility);
+		}
+
 		if ((mode === 'hex' || mode === 'polyline') && (modeChanged || resolutionChanged)) {
 			if (!this.cellsByResolution[resolution]) {
 				this.logger.log('Map', `lazy-computing resolution ${resolution}`);
@@ -967,6 +1017,13 @@ export class Map {
 					date: t.startTime.substring(0, 10),
 				}));
 				this.cellsByResolution[resolution] = this.h3.computeResolution(tripData, resolution);
+				if (resolution === 7 && !this.newCellsR7Computed) {
+					const allR7 = this.h3.computeResolution(
+						this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
+						7,
+					);
+					this.computeNewCellsR7(allR7);
+				}
 			}
 			const data = this.cellsByResolution[resolution];
 			if (!data) return;
@@ -989,6 +1046,7 @@ export class Map {
 			(this.map.getSource('heatmap') as maplibregl.GeoJSONSource).setData(
 				this.h3.cellsToHeatmapGeoJSON(displayCounts),
 			);
+			this.updateNewCellsLayer();
 		}
 	}
 
@@ -1510,6 +1568,120 @@ export class Map {
 			}
 		}
 		return inside;
+	}
+
+	protected simulateNewTripForDebug(): void {
+		if (!this.allTripsWithCoords.length) return;
+		const today = new Date().toISOString().substring(0, 10);
+		const hasTodayTrips = this.allTripsWithCoords.some((t) => t.startTime.substring(0, 10) === today);
+		if (!hasTodayTrips) return;
+
+		const previousTripData = this.allTripsWithCoords
+			.filter((t) => t.startTime.substring(0, 10) !== today)
+			.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) }));
+
+		const prevR7 = new Set(
+			previousTripData.length > 0 ? Object.keys(this.h3.computeResolution(previousTripData, 7).counts) : [],
+		);
+		this.saveSeenCells(prevR7, this.SEEN_CELLS_KEY_R7);
+		try {
+			localStorage.removeItem(this.NEW_CELLS_FIRST_SEEN_KEY);
+		} catch {}
+
+		window.location.reload();
+	}
+
+	private loadSeenCells(key: string): Set<string> {
+		try {
+			const raw = localStorage.getItem(key);
+			if (raw) return new Set(JSON.parse(raw) as string[]);
+		} catch {}
+		return new Set();
+	}
+
+	private saveSeenCells(cells: Set<string>, key: string): void {
+		try {
+			localStorage.setItem(key, JSON.stringify([...cells]));
+		} catch {}
+	}
+
+	private readonly NEW_CELLS_MAX_AGE_DAYS = 3;
+
+	private isCellRecent(cell: string, cellToIndices: Record<string, number[]>): boolean {
+		const cutoff = new Date();
+		cutoff.setDate(cutoff.getDate() - this.NEW_CELLS_MAX_AGE_DAYS);
+		const cutoffStr = cutoff.toISOString().substring(0, 10);
+		return (cellToIndices[cell] ?? []).some((i) => {
+			const trip = this.allTripsWithCoords[i];
+			return trip && trip.startTime.substring(0, 10) >= cutoffStr;
+		});
+	}
+
+	private computeNewCellsR7(data: H3Data): void {
+		this.newCellsR7Computed = true;
+		const current = new Set(Object.keys(data.counts));
+		const seen = this.loadSeenCells(this.SEEN_CELLS_KEY_R7);
+		this.pendingSeenR7 = current;
+
+		if (seen.size === 0) {
+			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
+			return;
+		}
+
+		const now = Date.now();
+		const firstSeenStr = (() => {
+			try {
+				return localStorage.getItem(this.NEW_CELLS_FIRST_SEEN_KEY);
+			} catch {
+				return null;
+			}
+		})();
+
+		if (firstSeenStr && now - parseInt(firstSeenStr, 10) >= this.NEW_CELLS_DURATION_MS) {
+			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
+			return;
+		}
+
+		const candidates = [...current].filter((c) => !seen.has(c) && this.isCellRecent(c, data.cellToIndices));
+
+		if (candidates.length === 0) {
+			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
+			return;
+		}
+
+		if (!firstSeenStr) {
+			try {
+				localStorage.setItem(this.NEW_CELLS_FIRST_SEEN_KEY, String(now));
+			} catch {}
+			this.newCellsTimer = setTimeout(() => this.clearNewCells(), this.NEW_CELLS_DURATION_MS);
+		}
+
+		this.newCellsR7 = new Set(candidates);
+		this.logger.log('Map', `new cells R7 since last visit: ${this.newCellsR7.size}`);
+	}
+
+	private updateNewCellsLayer(): void {
+		const src = this.map?.getSource('new-cells') as maplibregl.GeoJSONSource | undefined;
+		if (!src || this.newCellsR7.size === 0) return;
+		const data = this.cellsByResolution[7];
+		if (!data) return;
+		const cells = [...this.newCellsR7].filter((c) => c in data.counts);
+		src.setData(this.h3.cellsToOutlineGeoJSON(cells));
+	}
+
+	private clearNewCells(): void {
+		this.newCellsTimer = null;
+		if (this.pendingSeenR7.size > 0) this.saveSeenCells(this.pendingSeenR7, this.SEEN_CELLS_KEY_R7);
+		try {
+			localStorage.removeItem(this.NEW_CELLS_FIRST_SEEN_KEY);
+		} catch {}
+		this.newCellsR7 = new Set();
+		if (this.map?.getLayer('new-cells-line')) {
+			for (const id of ['new-cells-glow-3', 'new-cells-glow-2', 'new-cells-glow-1', 'new-cells-line']) {
+				this.map.setPaintProperty(id, 'line-opacity-transition', { duration: 2000, delay: 0 });
+				this.map.setPaintProperty(id, 'line-opacity', 0);
+			}
+		}
 	}
 
 	private buildAllTripsGeoJSON(): GeoJSON.FeatureCollection {

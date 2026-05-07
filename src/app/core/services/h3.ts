@@ -1,5 +1,13 @@
 import { Injectable } from '@angular/core';
-import { latLngToCell, gridPathCells, cellToBoundary, cellToLatLng, polygonToCells, cellsToMultiPolygon } from 'h3-js';
+import {
+	latLngToCell,
+	gridPathCells,
+	cellToBoundary,
+	cellToLatLng,
+	polygonToCells,
+	cellsToMultiPolygon,
+	cellToChildren,
+} from 'h3-js';
 import polygonClipping from 'polygon-clipping';
 import { LoggerService } from './logger';
 
@@ -310,6 +318,19 @@ export class H3Service {
 		};
 	}
 
+	// Merged outline of a set of cells — internal borders between adjacent cells are dissolved
+	cellsToOutlineGeoJSON(cells: string[]): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
+		const merged = cellsToMultiPolygon(cells, true) as [number, number][][][];
+		return {
+			type: 'FeatureCollection',
+			features: merged.map((poly) => ({
+				type: 'Feature',
+				geometry: { type: 'Polygon', coordinates: poly as GeoJSON.Position[][] },
+				properties: {},
+			})),
+		};
+	}
+
 	// Returns [lng, lat] center of a cell for MapLibre popup positioning
 	getCellCenter(cell: string): [number, number] {
 		const [lat, lng] = cellToLatLng(cell);
@@ -362,6 +383,16 @@ export class H3Service {
 		this.logger.log('H3', `enrichDepartmentsWithCoverage — done in ${Math.round(performance.now() - t0)}ms`);
 		this.enrichedDeptCache.set(cacheKey, result);
 		this.flushDeptCellsToStorage();
+		return result;
+	}
+
+	// Expand res-6 cells to their res-7 children (used to highlight new cells at any zoom level)
+	expandCellsToResolution(cells: string[], targetResolution: H3Resolution): string[] {
+		if (targetResolution === 6) return cells;
+		const result: string[] = [];
+		for (const cell of cells) {
+			for (const child of cellToChildren(cell, targetResolution)) result.push(child);
+		}
 		return result;
 	}
 
