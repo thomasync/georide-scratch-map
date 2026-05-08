@@ -53,7 +53,21 @@ export const cacheInterceptor: HttpInterceptorFn = (req, next) => {
 	return next(req).pipe(
 		tap((event) => {
 			if (event instanceof HttpResponse && event.status === 200) {
-				localStorage.setItem(key, JSON.stringify({ body: event.body, expiresAt: Date.now() + host.ttl }));
+				const value = JSON.stringify({ body: event.body, expiresAt: Date.now() + host.ttl });
+				try {
+					localStorage.setItem(key, value);
+				} catch {
+					// Quota exceeded: evict all cache entries and retry once
+					const toRemove: string[] = [];
+					for (let i = 0; i < localStorage.length; i++) {
+						const k = localStorage.key(i);
+						if (k?.startsWith(PREFIX)) toRemove.push(k);
+					}
+					toRemove.forEach((k) => localStorage.removeItem(k));
+					try {
+						localStorage.setItem(key, value);
+					} catch {}
+				}
 			}
 		}),
 	);

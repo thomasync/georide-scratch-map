@@ -256,4 +256,190 @@
 	}
 }
 
+// Feature: new cells recap modal
+.recap-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: rgba(0, 0, 0, 0.05);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	backdrop-filter: blur(4px);
+}
+
+.recap-modal {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	padding: 1.25rem 1.5rem;
+	width: min(90vw, 360px);
+	max-height: 80vh;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0.9rem;
+}
+
+.recap-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.recap-title {
+	font-weight: 700;
+	font-size: 1rem;
+	color: var(--text);
+}
+
+.recap-close {
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: 1rem;
+	padding: 0.25rem;
+	line-height: 1;
+	border-radius: 0.25rem;
+
+	&:hover {
+		color: var(--text);
+	}
+}
+
+.recap-hex-count {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
+}
+
+.recap-big {
+	font-size: 2rem;
+	font-weight: 900;
+	color: #fdb300;
+	line-height: 1;
+}
+
+.recap-sub {
+	font-size: 0.85rem;
+	color: var(--text-muted);
+}
+
+.recap-section-title {
+	font-size: 0.68rem;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--text-muted);
+	font-weight: 600;
+	margin-bottom: -0.3rem;
+}
+
+.recap-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+}
+
+.recap-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 0.875rem;
+}
+
+.recap-row-label {
+	color: var(--text);
+}
+
+.recap-row-right {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.recap-pct {
+	color: #fdb300;
+	font-weight: 700;
+}
+
+.recap-new-cells {
+	color: var(--text-muted);
+	font-size: 0.78rem;
+}
+
+.recap-trip-km {
+	color: var(--text-muted);
+	font-size: 0.82rem;
+}
+
+.recap-actions {
+	display: flex;
+	gap: 0.5rem;
+	padding-top: 0.15rem;
+}
+
+.recap-btn {
+	flex: 1;
+	padding: 0.6rem;
+	border-radius: 0.5rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	cursor: pointer;
+	border: none;
+	font-family: inherit;
+	transition: opacity 0.15s;
+
+	&:hover {
+		opacity: 0.85;
+	}
+}
+
+.recap-btn-primary {
+	background: #fdb300;
+	color: #000;
+}
+
+.recap-btn-secondary {
+	background: var(--border);
+	color: var(--text);
+}
+
+// Feature: new trips polyline mode banner
+.new-trips-banner {
+	position: absolute;
+	top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 30;
+	background: rgba(0, 0, 0, 0.75);
+	backdrop-filter: blur(6px);
+	border: 1px solid rgba(253, 179, 0, 0.4);
+	border-radius: 2rem;
+	padding: 0.4rem 0.6rem 0.4rem 1rem;
+	font-size: 0.8rem;
+	color: rgba(255, 255, 255, 0.8);
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	white-space: nowrap;
+}
+
+.banner-exit-btn {
+	background: rgba(253, 179, 0, 0.15);
+	border: 1px solid rgba(253, 179, 0, 0.4);
+	color: #fdb300;
+	font-weight: 600;
+	cursor: pointer;
+	padding: 0.2rem 0.65rem;
+	border-radius: 1rem;
+	font-family: inherit;
+	font-size: inherit;
+	transition: background 0.15s;
+
+	&:hover {
+		background: rgba(253, 179, 0, 0.25);
+	}
+}
+
 // Popup styles → déplacés dans styles.scss (global)

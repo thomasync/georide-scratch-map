@@ -22,6 +22,11 @@
 	<button class="ctrl-btn" (click)="takeScreenshot()" title="Télécharger une capture">
 		<img src="camera.png" alt="" class="ctrl-icon" />
 	</button>
+	@if (newCellsRecapData() && !showNewCellsRecap()) {
+		<button class="ctrl-btn" (click)="reopenRecap()" title="Voir les nouveaux lieux">
+			<img src="recap.png" alt="" class="ctrl-icon" />
+		</button>
+	}
 	@if (isDemo) {
 		<button class="ctrl-btn" (click)="goToLogin()" title="Se connecter">
 			<img src="user.png" alt="" class="ctrl-icon" />
@@ -122,6 +127,59 @@
 						{{ dateFilterLabels[preset] }}
 					</button>
 				}
+			}
+		</div>
+	</div>
+}
+
+@if (showNewCellsRecap()) {
+	<div class="recap-overlay" (click)="closeRecap()">
+		<div class="recap-modal" (click)="$event.stopPropagation()">
+			<div class="recap-header">
+				<span class="recap-title">Nouveaux lieux</span>
+				<button class="recap-close" (click)="closeRecap()">✕</button>
+			</div>
+			@if (newCellsRecapData(); as data) {
+				<div class="recap-hex-count">
+					<span class="recap-big">{{ data.newHexCount }}</span>
+					<span class="recap-sub"
+						>nouveau{{ data.newHexCount === 1 ? '' : 'x' }} lieu{{
+							data.newHexCount === 1 ? '' : 'x'
+						}}
+						débloqué{{ data.newHexCount === 1 ? '' : 's' }}</span
+					>
+				</div>
+				@if (data.depts.length > 0) {
+					<div class="recap-section-title">Départements</div>
+					<div class="recap-list">
+						@for (dept of data.depts; track dept.code) {
+							<div class="recap-row">
+								<span class="recap-row-label">{{ dept.name }}</span>
+								<span class="recap-row-right">
+									<span class="recap-pct">{{ dept.pct }}%</span>
+									<span class="recap-new-cells"
+										>+{{ dept.newCells }} lieu{{ dept.newCells === 1 ? '' : 'x' }}</span
+									>
+								</span>
+							</div>
+						}
+					</div>
+				}
+				@if (data.trips.length > 0) {
+					<div class="recap-section-title">Trajets récents</div>
+					<div class="recap-list">
+						@for (trip of data.trips; track $index) {
+							<div class="recap-row">
+								<span class="recap-row-label">{{ trip.label }}</span>
+								<span class="recap-trip-km">{{ trip.km }} km</span>
+							</div>
+						}
+					</div>
+				}
+				<div class="recap-actions">
+					<button class="recap-btn recap-btn-primary" (click)="onViewNewTrips()">Voir les trajets</button>
+					<button class="recap-btn recap-btn-secondary" (click)="dismissRecap()">Ne plus afficher</button>
+				</div>
 			}
 		</div>
 	</div>

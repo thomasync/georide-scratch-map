@@ -27,6 +27,12 @@ import { DevBoxComponent } from './dev-box';
 
 type Mode = 'hex' | 'dept' | 'polyline';
 type TripWithCoords = Trip & { coords: [number, number][] };
+
+interface NewCellsRecapData {
+	newHexCount: number;
+	trips: { label: string; km: number }[];
+	depts: { code: string; name: string; pct: number; newCells: number }[];
+}
 type DateFilterPreset =
 	| 'all'
 	| 'today'
@@ -138,13 +144,18 @@ export class Map {
 	private justClosedTrip = false;
 	private openPopupCell: string | null = null;
 
-	private readonly SEEN_CELLS_KEY_R7 = 'georide_seen_cells_r7_v1';
-	private readonly NEW_CELLS_FIRST_SEEN_KEY = 'georide_new_cells_first_seen_v1';
-	private readonly NEW_CELLS_DURATION_MS = 10 * 60 * 1000;
+	private readonly LAST_CLEARED_KEY = 'georide_last_cleared_ts_v1';
+	private readonly RECAP_DISMISSED_KEY = 'georide_recap_dismissed_v1';
 	private newCellsR7 = new Set<string>();
 	private newCellsR7Computed = false;
-	private newCellsTimer: ReturnType<typeof setTimeout> | null = null;
-	private pendingSeenR7 = new Set<string>();
+	private allR7Data: H3Data | null = null;
+	private newTripIndicesForPolyline: Set<number> | null = null;
+	private savedNewCellsR7 = new Set<string>();
+
+	showNewCellsRecap = signal(false);
+	newCellsRecapData = signal<NewCellsRecapData | null>(null);
+	isNewTripsPolylineMode = signal(false);
+	private recapDismissed = signal(false);
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
@@ -593,6 +604,8 @@ export class Map {
 				setTimeout(() => {
 					this.justClosedTrip = false;
 				}, 0);
+			} else if (this.newTripIndicesForPolyline) {
+				this.exitNewTripsPolylineMode();
 			}
 		});
 
@@ -603,7 +616,6 @@ export class Map {
 		this.destroyRef.onDestroy(() => {
 			this.logger.log('Map', 'destroying map');
 			this.map?.remove();
-			if (this.newCellsTimer) clearTimeout(this.newCellsTimer);
 		});
 	}
 
@@ -623,6 +635,15 @@ export class Map {
 		this.tripCount.set(tripCount);
 		this.totalKm.set(totalKm);
 		this.hexagonCount.set(hexagonCount);
+		const latestTripDate = this.allTripsWithCoords.reduce<Date>((latest, t) => {
+			const d = new Date(t.startTime);
+			return d > latest ? d : latest;
+		}, new Date(0));
+		const allR7 = this.h3.computeResolution(
+			this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
+			7,
+		);
+		this.computeNewCellsR7(allR7, latestTripDate);
 		this.addLayers();
 		this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
 	}
@@ -694,6 +715,12 @@ export class Map {
 							this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution]?.counts ?? {},
 						).length,
 					);
+
+					const allR7 = this.h3.computeResolution(
+						this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
+						7,
+					);
+					this.computeNewCellsR7(allR7);
 
 					this.addLayers();
 					this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
@@ -841,27 +868,28 @@ export class Map {
 				id: 'new-cells-glow-3',
 				type: 'line',
 				source: 'new-cells',
-				paint: { 'line-color': glowColor, 'line-width': 20, 'line-opacity': 0.07, 'line-blur': 10 },
+				paint: { 'line-color': glowColor, 'line-width': 20, 'line-opacity': 0, 'line-blur': 10 },
 			});
 			this.map.addLayer({
 				id: 'new-cells-glow-2',
 				type: 'line',
 				source: 'new-cells',
-				paint: { 'line-color': glowColor, 'line-width': 12, 'line-opacity': 0.18, 'line-blur': 5 },
+				paint: { 'line-color': glowColor, 'line-width': 12, 'line-opacity': 0, 'line-blur': 5 },
 			});
 			this.map.addLayer({
 				id: 'new-cells-glow-1',
 				type: 'line',
 				source: 'new-cells',
-				paint: { 'line-color': glowColor, 'line-width': 5, 'line-opacity': 0.55, 'line-blur': 2 },
+				paint: { 'line-color': glowColor, 'line-width': 5, 'line-opacity': 0, 'line-blur': 2 },
 			});
 			this.map.addLayer({
 				id: 'new-cells-line',
 				type: 'line',
 				source: 'new-cells',
-				paint: { 'line-color': glowColor, 'line-width': 1.5, 'line-opacity': 1.0 },
+				paint: { 'line-color': glowColor, 'line-width': 1.5, 'line-opacity': 0 },
 			});
 			this.updateNewCellsLayer();
+			if (this.newCellsR7.size > 0) setTimeout(() => this.showNewCellsGlow(), 50);
 		} else {
 			this.updateNewCellsLayer();
 		}
@@ -964,11 +992,17 @@ export class Map {
 			? this.mapSettings.polylineModeZoomThresholdMob()
 			: this.mapSettings.polylineModeZoomThresholdDesk();
 		const mode: Mode =
-			zoom <= this.deptThreshold
-				? 'dept'
-				: zoom >= polylineThreshold && !this.selectedTripCoords
-					? 'polyline'
-					: 'hex';
+			this.newTripIndicesForPolyline && zoom > this.deptThreshold
+				? 'polyline'
+				: zoom <= this.deptThreshold
+					? 'dept'
+					: zoom >= polylineThreshold && !this.selectedTripCoords
+						? 'polyline'
+						: 'hex';
+		this.logger.log(
+			'Map',
+			`[updateView] zoom=${zoom.toFixed(2)} deptThreshold=${this.deptThreshold} newTripIndices=${!!this.newTripIndicesForPolyline} → mode=${mode} (current=${this.currentMode})`,
+		);
 
 		const modeChanged = mode !== this.currentMode;
 		const resolutionChanged = resolution !== this.currentResolution;
@@ -983,6 +1017,7 @@ export class Map {
 			if (mode === 'dept') {
 				this.ensureDeptLayers();
 				if (this.focusedDeptFeature && !this.isFittingDept) this.clearDeptFocus();
+				if (this.newTripIndicesForPolyline) this.exitNewTripsPolylineMode();
 			}
 
 			const hexVisible: 'visible' | 'none' = mode === 'hex' || mode === 'polyline' ? 'visible' : 'none';
@@ -1004,7 +1039,8 @@ export class Map {
 			this.popup?.remove();
 		}
 
-		const newCellsVisibility = mode === 'hex' && resolution === 7 ? 'visible' : 'none';
+		const newCellsVisibility =
+			resolution === 7 && (mode === 'hex' || !!this.newTripIndicesForPolyline) ? 'visible' : 'none';
 		for (const id of ['new-cells-glow-3', 'new-cells-glow-2', 'new-cells-glow-1', 'new-cells-line']) {
 			if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', newCellsVisibility);
 		}
@@ -1572,92 +1608,195 @@ export class Map {
 
 	protected simulateNewTripForDebug(): void {
 		if (!this.allTripsWithCoords.length) return;
-		const today = new Date().toISOString().substring(0, 10);
-		const hasTodayTrips = this.allTripsWithCoords.some((t) => t.startTime.substring(0, 10) === today);
-		if (!hasTodayTrips) return;
+		const now = new Date();
+		const yesterday = new Date(now);
+		yesterday.setDate(now.getDate() - 1);
+		const yesterdayStr = yesterday.toISOString().substring(0, 10);
+		const hasYesterdayTrips = this.allTripsWithCoords.some((t) => t.startTime.substring(0, 10) >= yesterdayStr);
+		if (!hasYesterdayTrips) return;
 
-		const previousTripData = this.allTripsWithCoords
-			.filter((t) => t.startTime.substring(0, 10) !== today)
-			.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) }));
-
-		const prevR7 = new Set(
-			previousTripData.length > 0 ? Object.keys(this.h3.computeResolution(previousTripData, 7).counts) : [],
-		);
-		this.saveSeenCells(prevR7, this.SEEN_CELLS_KEY_R7);
+		const dayBeforeYesterday = new Date(yesterday);
+		dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
+		dayBeforeYesterday.setHours(23, 59, 59, 999);
 		try {
-			localStorage.removeItem(this.NEW_CELLS_FIRST_SEEN_KEY);
+			localStorage.setItem(this.LAST_CLEARED_KEY, String(dayBeforeYesterday.getTime()));
+			localStorage.removeItem(this.RECAP_DISMISSED_KEY);
 		} catch {}
 
 		window.location.reload();
 	}
 
-	private loadSeenCells(key: string): Set<string> {
-		try {
-			const raw = localStorage.getItem(key);
-			if (raw) return new Set(JSON.parse(raw) as string[]);
-		} catch {}
-		return new Set();
-	}
-
-	private saveSeenCells(cells: Set<string>, key: string): void {
-		try {
-			localStorage.setItem(key, JSON.stringify([...cells]));
-		} catch {}
-	}
-
 	private readonly NEW_CELLS_MAX_AGE_DAYS = 3;
 
-	private isCellRecent(cell: string, cellToIndices: Record<string, number[]>): boolean {
-		const cutoff = new Date();
+	private computeNewCellsR7(data: H3Data, referenceDate?: Date): void {
+		this.newCellsR7Computed = true;
+		this.allR7Data = data;
+
+		const today = referenceDate ?? new Date();
+		const cutoff = new Date(today);
 		cutoff.setDate(cutoff.getDate() - this.NEW_CELLS_MAX_AGE_DAYS);
 		const cutoffStr = cutoff.toISOString().substring(0, 10);
-		return (cellToIndices[cell] ?? []).some((i) => {
-			const trip = this.allTripsWithCoords[i];
-			return trip && trip.startTime.substring(0, 10) >= cutoffStr;
+
+		const dismissedTs = (() => {
+			try {
+				return parseInt(localStorage.getItem(this.RECAP_DISMISSED_KEY) ?? '0', 10);
+			} catch {
+				return 0;
+			}
+		})();
+		if (dismissedTs > 0 || referenceDate) this.recapDismissed.set(true);
+		const lastClearedTs = referenceDate
+			? 0
+			: (() => {
+					try {
+						return parseInt(localStorage.getItem(this.LAST_CLEARED_KEY) ?? '0', 10);
+					} catch {
+						return 0;
+					}
+				})();
+		const lastClearedDate = new Date(lastClearedTs).toISOString().substring(0, 10);
+
+		const candidates = Object.keys(data.counts).filter((cell) => {
+			const indices = data.cellToIndices[cell] ?? [];
+			const dates = indices
+				.map((i) => this.allTripsWithCoords[i]?.startTime.substring(0, 10))
+				.filter((d): d is string => !!d);
+			if (dates.length === 0) return false;
+			const firstDate = dates.reduce((a, b) => (a < b ? a : b));
+			return firstDate >= cutoffStr && firstDate > lastClearedDate;
+		});
+
+		if (candidates.length === 0) return;
+
+		this.savedNewCellsR7 = new Set(candidates);
+		this.newCellsR7 = new Set(candidates);
+		this.buildRecapData();
+		if (this.recapDismissed()) {
+			this.newCellsR7 = new Set();
+		} else {
+			this.logger.log('Map', `new cells R7: ${this.newCellsR7.size}`);
+		}
+	}
+
+	private buildRecapData(): void {
+		if (!this.allR7Data) return;
+		// Collect only dates where new cells were discovered
+		const newCellDates = new Set<string>();
+		for (const cell of this.newCellsR7) {
+			for (const idx of this.allR7Data.cellToIndices[cell] ?? []) {
+				const trip = this.allTripsWithCoords[idx];
+				if (trip) newCellDates.add(trip.startTime.substring(0, 10));
+			}
+		}
+
+		const fmt = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+		const kmByDate: Record<string, number> = {};
+		for (const trip of this.allTripsWithCoords) {
+			const dateKey = trip.startTime.substring(0, 10);
+			if (!newCellDates.has(dateKey)) continue;
+			kmByDate[dateKey] = (kmByDate[dateKey] ?? 0) + Math.round(trip.distance / 1000);
+		}
+		const trips: NewCellsRecapData['trips'] = Object.entries(kmByDate).map(([dateKey, km]) => ({
+			label: fmt.format(new Date(dateKey)),
+			km,
+		}));
+
+		this.newCellsRecapData.set({
+			newHexCount: this.newCellsR7.size,
+			trips,
+			depts: this.computeNewCellsDeptStats(),
 		});
 	}
 
-	private computeNewCellsR7(data: H3Data): void {
-		this.newCellsR7Computed = true;
-		const current = new Set(Object.keys(data.counts));
-		const seen = this.loadSeenCells(this.SEEN_CELLS_KEY_R7);
-		this.pendingSeenR7 = current;
-
-		if (seen.size === 0) {
-			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
-			return;
+	private computeNewCellsDeptStats(): NewCellsRecapData['depts'] {
+		if (!this.departments || !this.allR7Data) return [];
+		const stats: NewCellsRecapData['depts'] = [];
+		for (const feature of this.departments.features) {
+			const cells = this.h3.getDepartmentCells(
+				feature as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+				7,
+			);
+			const newCount = cells.filter((c) => this.newCellsR7.has(c)).length;
+			if (newCount === 0) continue;
+			const visited = cells.filter((c) => c in this.allR7Data!.counts).length;
+			const pct = cells.length > 0 ? Math.round((visited / cells.length) * 100) : 0;
+			stats.push({
+				code: (feature.properties?.['code'] as string) ?? '',
+				name: (feature.properties?.['nom'] as string) ?? '',
+				pct,
+				newCells: newCount,
+			});
 		}
+		return stats.sort((a, b) => b.newCells - a.newCells);
+	}
 
-		const now = Date.now();
-		const firstSeenStr = (() => {
-			try {
-				return localStorage.getItem(this.NEW_CELLS_FIRST_SEEN_KEY);
-			} catch {
-				return null;
+	closeRecap(): void {
+		this.showNewCellsRecap.set(false);
+	}
+
+	dismissRecap(): void {
+		this.showNewCellsRecap.set(false);
+		try {
+			localStorage.setItem(this.RECAP_DISMISSED_KEY, String(Date.now()));
+		} catch {}
+		this.recapDismissed.set(true);
+		this.clearNewCells();
+	}
+
+	reopenRecap(): void {
+		try {
+			localStorage.removeItem(this.RECAP_DISMISSED_KEY);
+		} catch {}
+		this.recapDismissed.set(false);
+		this.newCellsR7 = new Set(this.savedNewCellsR7);
+		this.currentMode = null;
+		this.currentResolution = null;
+		this.updateView();
+		setTimeout(() => this.showNewCellsGlow(), 50);
+		this.showNewCellsRecap.set(true);
+	}
+
+	onViewNewTrips(): void {
+		if (!this.allR7Data) return;
+		const newCellDates = new Set<string>();
+		for (const cell of this.newCellsR7) {
+			for (const idx of this.allR7Data.cellToIndices[cell] ?? []) {
+				const trip = this.allTripsWithCoords[idx];
+				if (trip) newCellDates.add(trip.startTime.substring(0, 10));
 			}
-		})();
-
-		if (firstSeenStr && now - parseInt(firstSeenStr, 10) >= this.NEW_CELLS_DURATION_MS) {
-			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
-			return;
 		}
-
-		const candidates = [...current].filter((c) => !seen.has(c) && this.isCellRecent(c, data.cellToIndices));
-
-		if (candidates.length === 0) {
-			this.saveSeenCells(current, this.SEEN_CELLS_KEY_R7);
-			return;
+		const indices = new Set<number>();
+		this.allTripsWithCoords.forEach((trip, idx) => {
+			if (newCellDates.has(trip.startTime.substring(0, 10))) indices.add(idx);
+		});
+		this.newTripIndicesForPolyline = indices;
+		this.logger.log(
+			'Map',
+			`[onViewNewTrips] indices=${indices.size} dates=${[...newCellDates].join(',')} zoom=${this.map?.getZoom().toFixed(2)} deptThreshold=${this.deptThreshold}`,
+		);
+		this.isNewTripsPolylineMode.set(true);
+		this.showNewCellsRecap.set(false);
+		(this.map?.getSource('all-trips') as maplibregl.GeoJSONSource)?.setData(this.buildAllTripsGeoJSON());
+		if (this.map && this.map.getZoom() > this.deptThreshold) {
+			this.currentMode = null;
+			this.currentResolution = null;
+			this.updateView();
 		}
+		const newTripCoords = [...indices].map((i) => this.allTripsWithCoords[i]?.coords).filter(Boolean) as [
+			number,
+			number,
+		][][];
+		this.fitToVisited(newTripCoords, 10, 1.5);
+	}
 
-		if (!firstSeenStr) {
-			try {
-				localStorage.setItem(this.NEW_CELLS_FIRST_SEEN_KEY, String(now));
-			} catch {}
-			this.newCellsTimer = setTimeout(() => this.clearNewCells(), this.NEW_CELLS_DURATION_MS);
-		}
-
-		this.newCellsR7 = new Set(candidates);
-		this.logger.log('Map', `new cells R7 since last visit: ${this.newCellsR7.size}`);
+	protected exitNewTripsPolylineMode(): void {
+		this.logger.log('Map', `[exitNewTripsPolylineMode] called, zoom=${this.map?.getZoom().toFixed(2)}`);
+		this.newTripIndicesForPolyline = null;
+		this.isNewTripsPolylineMode.set(false);
+		(this.map?.getSource('all-trips') as maplibregl.GeoJSONSource)?.setData(this.buildAllTripsGeoJSON());
+		this.currentMode = null;
+		this.currentResolution = null;
+		this.updateView();
 	}
 
 	private updateNewCellsLayer(): void {
@@ -1669,25 +1808,37 @@ export class Map {
 		src.setData(this.h3.cellsToOutlineGeoJSON(cells));
 	}
 
+	private showNewCellsGlow(): void {
+		if (!this.map?.getLayer('new-cells-line')) return;
+		const opacities: Record<string, number> = {
+			'new-cells-glow-3': 0.07,
+			'new-cells-glow-2': 0.18,
+			'new-cells-glow-1': 0.55,
+			'new-cells-line': 1.0,
+		};
+		for (const [id, opacity] of Object.entries(opacities)) {
+			this.map.setPaintProperty(id, 'line-opacity-transition', { duration: 400, delay: 0 });
+			this.map.setPaintProperty(id, 'line-opacity', opacity);
+		}
+	}
+
 	private clearNewCells(): void {
-		this.newCellsTimer = null;
-		if (this.pendingSeenR7.size > 0) this.saveSeenCells(this.pendingSeenR7, this.SEEN_CELLS_KEY_R7);
-		try {
-			localStorage.removeItem(this.NEW_CELLS_FIRST_SEEN_KEY);
-		} catch {}
 		this.newCellsR7 = new Set();
 		if (this.map?.getLayer('new-cells-line')) {
 			for (const id of ['new-cells-glow-3', 'new-cells-glow-2', 'new-cells-glow-1', 'new-cells-line']) {
-				this.map.setPaintProperty(id, 'line-opacity-transition', { duration: 2000, delay: 0 });
+				this.map.setPaintProperty(id, 'line-opacity-transition', { duration: 400, delay: 0 });
 				this.map.setPaintProperty(id, 'line-opacity', 0);
 			}
 		}
 	}
 
 	private buildAllTripsGeoJSON(): GeoJSON.FeatureCollection {
+		const trips = this.newTripIndicesForPolyline
+			? [...this.newTripIndicesForPolyline].map((i) => this.allTripsWithCoords[i]).filter(Boolean)
+			: this.tripsWithCoords;
 		return {
 			type: 'FeatureCollection',
-			features: this.tripsWithCoords.map((trip) => ({
+			features: trips.map((trip) => ({
 				type: 'Feature' as const,
 				geometry: {
 					type: 'LineString' as const,
@@ -1722,6 +1873,9 @@ export class Map {
 			setTimeout(() => {
 				this.loading.set(false);
 				this.loadingHiding.set(false);
+				if (this.newCellsRecapData() && !this.recapDismissed()) {
+					setTimeout(() => this.showNewCellsRecap.set(true), 600);
+				}
 			}, 500);
 			this.logger.log('Map', 'done');
 			this.fitToVisited(coords, fitMaxZoom, 0.4);
