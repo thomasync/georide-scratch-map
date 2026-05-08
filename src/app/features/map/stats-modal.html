@@ -1,0 +1,55 @@
+<div class="modal-overlay" (click)="close.emit()">
+	<div class="modal" (click)="$event.stopPropagation()">
+		<div class="modal-header">
+			<span class="modal-title">Récapitulatif</span>
+			<div class="modal-header-actions">
+				<button class="modal-action-btn" (click)="togglePrompt()" title="Générer un prompt">?</button>
+				<button class="modal-close" (click)="close.emit()">✕</button>
+			</div>
+		</div>
+
+		@if (data) {
+			<div class="modal-body" #modalBody>
+				@if (showPrompt()) {
+					<textarea class="prompt-textarea" #promptTextarea>{{ buildPrompt() }}</textarea>
+				}
+				<div class="section-title">
+					Départements
+					<span class="section-count"
+						>{{ data.depts.length }} visité{{ data.depts.length > 1 ? 's' : '' }}</span
+					>
+				</div>
+				<div class="list">
+					@for (dept of data.depts; track dept.code) {
+						<div class="dept-block">
+							<div class="dept-row-top">
+								<span class="row-name">{{ dept.name }}</span>
+								<span class="row-pct">{{ dept.pct }}%</span>
+							</div>
+							<div class="dept-bar">
+								<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
+							</div>
+							@if (dept.cities.length > 0) {
+								<div class="city-list">
+									@for (city of dept.cities; track city.name) {
+										<div class="city-row" (click)="toggleCity(dept.code, city.name)">
+											<span class="city-name">{{ city.name }}</span>
+											<span class="row-count">× {{ city.count }}</span>
+										</div>
+										@if (isVisible(dept.code, city.name)) {
+											<div class="city-dates">
+												@for (date of city.dates; track date) {
+													<span class="city-date">{{ date }}</span>
+												}
+											</div>
+										}
+									}
+								</div>
+							}
+						</div>
+					}
+				</div>
+			</div>
+		}
+	</div>
+</div>

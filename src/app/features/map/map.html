@@ -19,6 +19,9 @@
 	<button class="ctrl-btn" (click)="resetView()" title="Vue France complète">
 		<img src="world_map.png" alt="" class="ctrl-icon" />
 	</button>
+	<button class="ctrl-btn" (click)="openStatsModal()" title="Récapitulatif">
+		<img src="compass.png" alt="" class="ctrl-icon" />
+	</button>
 	<button class="ctrl-btn" (click)="takeScreenshot()" title="Télécharger une capture">
 		<img src="camera.png" alt="" class="ctrl-icon" />
 	</button>
@@ -183,6 +186,10 @@
 			}
 		</div>
 	</div>
+}
+
+@if (showStatsModal()) {
+	<app-stats-modal [data]="statsModalData()" (close)="closeStatsModal()" />
 }
 
 @if (isDevMode) {

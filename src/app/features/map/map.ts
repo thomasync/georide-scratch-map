@@ -24,6 +24,7 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DevBoxComponent } from './dev-box';
+import { StatsModalComponent, StatsModalData } from './stats-modal';
 
 type Mode = 'hex' | 'dept' | 'polyline';
 type TripWithCoords = Trip & { coords: [number, number][] };
@@ -82,7 +83,7 @@ const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 
 @Component({
 	selector: 'app-map',
-	imports: [DevBoxComponent],
+	imports: [DevBoxComponent, StatsModalComponent],
 	templateUrl: './map.html',
 	styleUrl: './map.scss',
 })
@@ -151,6 +152,9 @@ export class Map {
 	private allR7Data: H3Data | null = null;
 	private newTripIndicesForPolyline: Set<number> | null = null;
 	private savedNewCellsR7 = new Set<string>();
+
+	showStatsModal = signal(false);
+	statsModalData = signal<StatsModalData | null>(null);
 
 	showNewCellsRecap = signal(false);
 	newCellsRecapData = signal<NewCellsRecapData | null>(null);
@@ -541,6 +545,98 @@ export class Map {
 				});
 			}
 		});
+	}
+
+	openStatsModal(): void {
+		this.statsModalData.set(this.computeStatsData());
+		this.showStatsModal.set(true);
+	}
+
+	closeStatsModal(): void {
+		this.showStatsModal.set(false);
+	}
+
+	private computeStatsData(): StatsModalData {
+		// Villes par département (point-in-polygon sur les coords GPS de chaque trajet)
+		const deptCities: Record<string, Record<string, { count: number; dates: string[] }>> = {};
+		for (const trip of this.tripsWithCoords) {
+			const startCity = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
+			const endCity = this.extractCity(trip.niceEndAddress ?? trip.endAddress);
+			if (!endCity || endCity === startCity) continue;
+			const code = this.findDeptCodeForPoint(trip.endLon, trip.endLat);
+			if (!code) continue;
+			if (!deptCities[code]) deptCities[code] = {};
+			if (!deptCities[code][endCity]) deptCities[code][endCity] = { count: 0, dates: [] };
+			deptCities[code][endCity].count++;
+			deptCities[code][endCity].dates.push(trip.startTime.substring(0, 10));
+		}
+
+		const depts: StatsModalData['depts'] = [];
+		if (this.departments) {
+			const data = this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution];
+			if (data) {
+				const enriched = this.h3.enrichDepartmentsWithCoverage(
+					this.departments,
+					data.counts,
+					this.mapSettings.deptResolution() as H3Resolution,
+					data.cellToIndices,
+				);
+				for (const f of enriched.features) {
+					const pct = (f.properties?.['pct'] as number) ?? 0;
+					if (pct === 0) continue;
+					const code = (f.properties?.['code'] as string) ?? '';
+					const fmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+					const cities = Object.entries(deptCities[code] ?? {})
+						.map(([name, { count, dates }]) => ({
+							name,
+							count,
+							dates: dates
+								.filter((d, i, arr) => arr.indexOf(d) === i)
+								.sort((a, b) => b.localeCompare(a))
+								.slice(0, 4)
+								.map((d) => fmt.format(new Date(d))),
+						}))
+						.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'fr'));
+					depts.push({
+						code,
+						name: (f.properties?.['nom'] as string) ?? '',
+						pct,
+						trips: (f.properties?.['tripCount'] as number) ?? 0,
+						cities,
+					});
+				}
+				depts.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name, 'fr'));
+			}
+		}
+
+		const startCityCount: Record<string, number> = {};
+		for (const trip of this.tripsWithCoords) {
+			const city = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
+			if (city) startCityCount[city] = (startCityCount[city] ?? 0) + 1;
+		}
+		const homeCity = Object.entries(startCityCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+		return { homeCity, depts };
+	}
+
+	private findDeptCodeForPoint(lng: number, lat: number): string | null {
+		if (!this.departments) return null;
+		for (const feature of this.departments.features) {
+			if (this.pointInFeature(lng, lat, feature)) {
+				return (feature.properties?.['code'] as string) ?? null;
+			}
+		}
+		return null;
+	}
+
+	private extractCity(addr: string | null | undefined): string | null {
+		if (!addr) return null;
+		return (
+			addr
+				.split(',')
+				.map((s) => s.trim())
+				.find((s) => s.length > 0 && !/^\d/.test(s)) ?? null
+		);
 	}
 
 	private get isMobile(): boolean {

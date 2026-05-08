@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:api.georide.com)",
+      "Bash(curl -s -I https://api.georide.com/)",
+      "Bash(curl -s https://api.georide.com/)",
+      "Bash(curl -s https://api.georide.com/api_data.js)",
+      "Read(//tmp/**)",
+      "Bash(node -e ' *)"
     ]
   }
 }
