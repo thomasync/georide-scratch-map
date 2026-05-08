@@ -9,22 +9,73 @@
 
 <!-- Feature: controls -->
 <div class="controls">
+	<!-- Mobile : bouton menu (en premier) -->
+	<div class="ctrl-menu-container ctrl-mobile-only">
+		<button class="ctrl-btn" (click)="showControlMenu.set(!showControlMenu())" title="Menu">
+			<svg
+				class="ctrl-icon"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="#fdb300"
+				stroke-width="2.5"
+				stroke-linecap="round"
+			>
+				<line x1="4" y1="7" x2="20" y2="7" />
+				<line x1="4" y1="12" x2="20" y2="12" />
+				<line x1="4" y1="17" x2="20" y2="17" />
+			</svg>
+		</button>
+		@if (showControlMenu()) {
+			<div class="ctrl-menu-backdrop" (click)="showControlMenu.set(false)"></div>
+			<div class="ctrl-menu">
+				<button
+					class="ctrl-menu-item"
+					(click)="theme.toggle(); showControlMenu.set(false)"
+					[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+				>
+					<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-menu-icon" />
+					<span>{{ theme.isDark() ? 'Mode clair' : 'Mode sombre' }}</span>
+				</button>
+				<button
+					class="ctrl-menu-item"
+					(click)="takeScreenshot(); showControlMenu.set(false)"
+					title="Télécharger une capture"
+				>
+					<img src="camera.png" alt="" class="ctrl-menu-icon" />
+					<span>Capture d'écran</span>
+				</button>
+				<button
+					class="ctrl-menu-item"
+					(click)="openStatsModal(); showControlMenu.set(false)"
+					title="Récapitulatif"
+				>
+					<img src="compass.png" alt="" class="ctrl-menu-icon" />
+					<span>Récapitulatif</span>
+				</button>
+			</div>
+		}
+	</div>
+
+	<!-- Desktop uniquement -->
 	<button
-		class="ctrl-btn"
+		class="ctrl-btn ctrl-desktop-only"
 		(click)="theme.toggle()"
 		[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
 	>
 		<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
 	</button>
+
 	<button class="ctrl-btn" (click)="resetView()" title="Vue France complète">
 		<img src="world_map.png" alt="" class="ctrl-icon" />
 	</button>
-	<button class="ctrl-btn" (click)="openStatsModal()" title="Récapitulatif">
-		<img src="compass.png" alt="" class="ctrl-icon" />
-	</button>
-	<button class="ctrl-btn" (click)="takeScreenshot()" title="Télécharger une capture">
+
+	<button class="ctrl-btn ctrl-desktop-only" (click)="takeScreenshot()" title="Télécharger une capture">
 		<img src="camera.png" alt="" class="ctrl-icon" />
 	</button>
+	<button class="ctrl-btn ctrl-desktop-only" (click)="openStatsModal()" title="Récapitulatif">
+		<img src="compass.png" alt="" class="ctrl-icon" />
+	</button>
+
 	@if (newCellsRecapData() && !showNewCellsRecap()) {
 		<button class="ctrl-btn" (click)="reopenRecap()" title="Voir les nouveaux lieux">
 			<img src="recap.png" alt="" class="ctrl-icon" />

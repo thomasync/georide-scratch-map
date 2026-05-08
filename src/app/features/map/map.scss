@@ -37,6 +37,72 @@
 }
 
 // Feature: controls
+.ctrl-desktop-only {
+	@media (max-width: 767px) {
+		display: none !important;
+	}
+}
+
+.ctrl-mobile-only {
+	display: none;
+
+	@media (max-width: 767px) {
+		display: flex;
+	}
+}
+
+.ctrl-menu-container {
+	position: relative;
+}
+
+.ctrl-menu-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 29;
+}
+
+.ctrl-menu {
+	position: absolute;
+	top: calc(100% + 0.5rem);
+	left: 0;
+	z-index: 30;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	padding: 0.35rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	min-width: 11rem;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.ctrl-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	padding: 0.55rem 0.7rem;
+	border-radius: 0.5rem;
+	border: none;
+	background: none;
+	color: var(--text);
+	cursor: pointer;
+	font-size: 0.875rem;
+	font-family: inherit;
+	text-align: left;
+	width: 100%;
+
+	&:hover {
+		background: var(--border);
+	}
+}
+
+.ctrl-menu-icon {
+	width: 1.1rem;
+	height: 1.1rem;
+	flex-shrink: 0;
+}
+
 .controls {
 	position: absolute;
 	top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));

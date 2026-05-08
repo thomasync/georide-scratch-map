@@ -153,6 +153,7 @@ export class Map {
 	private newTripIndicesForPolyline: Set<number> | null = null;
 	private savedNewCellsR7 = new Set<string>();
 
+	showControlMenu = signal(false);
 	showStatsModal = signal(false);
 	statsModalData = signal<StatsModalData | null>(null);
 
