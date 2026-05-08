@@ -92,8 +92,10 @@
 	text-align: left;
 	width: 100%;
 
-	&:hover {
-		background: var(--border);
+	@media (hover: hover) {
+		&:hover {
+			background: var(--border);
+		}
 	}
 }
 
@@ -126,8 +128,10 @@
 	font-size: 1.1rem;
 	transition: background 0.15s;
 
-	&:hover {
-		background: var(--border);
+	@media (hover: hover) {
+		&:hover {
+			background: var(--border);
+		}
 	}
 
 	.ctrl-icon {
@@ -456,8 +460,10 @@
 	font-family: inherit;
 	transition: opacity 0.15s;
 
-	&:hover {
-		opacity: 0.85;
+	@media (hover: hover) {
+		&:hover {
+			opacity: 0.85;
+		}
 	}
 }
 
@@ -503,8 +509,10 @@
 	font-size: inherit;
 	transition: background 0.15s;
 
-	&:hover {
-		background: rgba(253, 179, 0, 0.25);
+	@media (hover: hover) {
+		&:hover {
+			background: rgba(253, 179, 0, 0.25);
+		}
 	}
 }
 

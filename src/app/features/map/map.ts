@@ -588,16 +588,24 @@ export class Map {
 					const code = (f.properties?.['code'] as string) ?? '';
 					const fmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 					const cities = Object.entries(deptCities[code] ?? {})
-						.map(([name, { count, dates }]) => ({
-							name,
-							count,
-							dates: dates
+						.map(([name, { count, dates }]) => {
+							const sorted = dates
 								.filter((d, i, arr) => arr.indexOf(d) === i)
-								.sort((a, b) => b.localeCompare(a))
-								.slice(0, 4)
-								.map((d) => fmt.format(new Date(d))),
-						}))
-						.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'fr'));
+								.sort((a, b) => b.localeCompare(a));
+							return {
+								name,
+								count,
+								latestRaw: sorted[0] ?? '',
+								dates: sorted.slice(0, 4).map((d) => fmt.format(new Date(d))),
+							};
+						})
+						.sort(
+							(a, b) =>
+								b.count - a.count ||
+								b.latestRaw.localeCompare(a.latestRaw) ||
+								a.name.localeCompare(b.name, 'fr'),
+						)
+						.map(({ name, count, dates }) => ({ name, count, dates }));
 					depts.push({
 						code,
 						name: (f.properties?.['nom'] as string) ?? '',

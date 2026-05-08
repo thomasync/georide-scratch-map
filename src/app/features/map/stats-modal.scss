@@ -55,9 +55,11 @@
 	justify-content: center;
 	line-height: 1;
 
-	&:hover {
-		color: var(--text);
-		border-color: var(--text-muted);
+	@media (hover: hover) {
+		&:hover {
+			color: var(--text);
+			border-color: var(--text-muted);
+		}
 	}
 }
 
@@ -71,8 +73,10 @@
 	line-height: 1;
 	border-radius: 0.25rem;
 
-	&:hover {
-		color: var(--text);
+	@media (hover: hover) {
+		&:hover {
+			color: var(--text);
+		}
 	}
 }
 
@@ -170,8 +174,10 @@
 	cursor: pointer;
 	border-radius: 0.25rem;
 
-	&:hover .city-name {
-		color: var(--text);
+	@media (hover: hover) {
+		&:hover .city-name {
+			color: var(--text);
+		}
 	}
 }
 
@@ -189,6 +195,12 @@
 	background: rgba(255, 255, 255, 0.1);
 	border-radius: 0.25rem;
 	padding: 0.1rem 0.4rem;
+
+	@media (max-width: 480px) {
+		&:nth-child(n + 4) {
+			display: none;
+		}
+	}
 }
 
 .city-name {
