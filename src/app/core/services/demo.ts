@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { catchError, forkJoin, map, Observable, of, switchMap } from 'rxjs';
+import { ANDORRA_FEATURE } from '../data/andorra';
 import { H3Data, H3Resolution, H3Service } from './h3';
 import { Trip } from '../models/trip';
 
@@ -481,6 +482,90 @@ const ROUTES: { start: string; end: string; date: string; waypoints: [number, nu
 			[43.73, 3.32],
 		],
 	},
+	{
+		start: 'Perpignan',
+		end: 'Girona',
+		date: '2025-07-05',
+		waypoints: [
+			[42.69, 2.9],
+			[42.42, 2.87],
+			[42.1, 2.82],
+			[41.98, 2.82],
+		],
+	},
+	{
+		start: 'Girona',
+		end: 'Barcelona',
+		date: '2025-07-06',
+		waypoints: [
+			[41.98, 2.82],
+			[41.72, 2.83],
+			[41.57, 2.64],
+			[41.39, 2.16],
+		],
+	},
+	{
+		start: 'Barcelona',
+		end: 'Tarragona',
+		date: '2025-07-07',
+		waypoints: [
+			[41.39, 2.16],
+			[41.27, 1.98],
+			[41.12, 1.24],
+		],
+	},
+	{
+		start: 'Bayonne',
+		end: 'San Sebastián',
+		date: '2025-07-12',
+		waypoints: [
+			[43.49, -1.48],
+			[43.36, -1.79],
+			[43.32, -1.98],
+		],
+	},
+	{
+		start: 'San Sebastián',
+		end: 'Bilbao',
+		date: '2025-07-13',
+		waypoints: [
+			[43.32, -1.98],
+			[43.3, -2.32],
+			[43.26, -2.93],
+		],
+	},
+	{
+		start: 'Barcelona',
+		end: 'Lleida',
+		date: '2025-07-20',
+		waypoints: [
+			[41.39, 2.16],
+			[41.53, 1.83],
+			[41.62, 1.25],
+			[41.62, 0.63],
+		],
+	},
+	{
+		start: 'Lleida',
+		end: 'Zaragoza',
+		date: '2025-07-21',
+		waypoints: [
+			[41.62, 0.63],
+			[41.53, 0.03],
+			[41.65, -0.89],
+		],
+	},
+	{
+		start: 'Foix',
+		end: 'Andorra la Vella',
+		date: '2025-08-02',
+		waypoints: [
+			[42.96, 1.6],
+			[42.82, 1.6],
+			[42.65, 1.58],
+			[42.51, 1.52],
+		],
+	},
 ];
 
 @Injectable({ providedIn: 'root' })
@@ -489,7 +574,18 @@ export class DemoService {
 	private h3 = inject(H3Service);
 
 	load(): Observable<DemoData> {
-		return this.http.get<GeoJSON.FeatureCollection>('/departements.geojson').pipe(
+		return forkJoin([
+			this.http.get<GeoJSON.FeatureCollection>('/france.geojson'),
+			this.http.get<GeoJSON.FeatureCollection>('/spain.geojson'),
+		]).pipe(
+			map(([france, spain]) => ({
+				type: 'FeatureCollection' as const,
+				features: [
+					...france.features.map((f) => ({ ...f, properties: { ...f.properties, country: 'FR' } })),
+					...spain.features,
+					ANDORRA_FEATURE,
+				],
+			})),
 			switchMap((departments) =>
 				forkJoin(ROUTES.map((r) => this.fetchRoute(r.waypoints))).pipe(
 					map((coordArrays) => {

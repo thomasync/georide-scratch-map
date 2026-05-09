@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
-import { catchError, forkJoin, of, switchMap } from 'rxjs';
+import { catchError, forkJoin, map as rxMap, of, switchMap } from 'rxjs';
 import { Trip } from '../../core/models/trip';
 import { GeorideApiService } from '../../core/services/georide-api';
 import { H3Data, H3Resolution, H3Service, resolutionForZoom } from '../../core/services/h3';
@@ -23,6 +23,7 @@ import { ScreenshotService } from '../../core/services/screenshot';
 import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
+import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
 import { StatsModalComponent, StatsModalData } from './stats-modal';
 
@@ -767,29 +768,75 @@ export class Map {
 			return;
 		}
 
-		forkJoin({
-			trackers: this.api.getTrackers(),
-			departments: this.http.get<GeoJSON.FeatureCollection>('/departements.geojson').pipe(
-				catchError(() => {
-					this.logger.warn('Map', 'departments.geojson not found, dept mode disabled');
-					return of(null);
-				}),
-			),
-		})
+		const COUNTRY_FILES = [
+			{ country: 'FR', file: '/france.geojson', minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 },
+			{ country: 'ES', file: '/spain.geojson', minLat: 27.6, maxLat: 43.8, minLon: -18.2, maxLon: 4.4 },
+		];
+
+		this.api
+			.getTrackers()
 			.pipe(
-				switchMap(({ trackers, departments }) => {
-					this.departments = departments;
+				switchMap((trackers) => {
 					this.logger.log('Map', `got ${trackers.length} tracker(s), fetching trips`);
 					const to = new Date();
 					to.setHours(23, 59, 59, 999);
 					return forkJoin(
 						trackers.map((t) => this.api.getTrips(t.trackerId, new Date(t.activationDate), to)),
+					).pipe(rxMap((tripArrays) => tripArrays.flat()));
+				}),
+				switchMap((allTrips) => {
+					const inBounds = (lat: number, lon: number, c: (typeof COUNTRY_FILES)[number]) =>
+						lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon;
+					const needed = COUNTRY_FILES.filter((c) =>
+						allTrips.some((t) => inBounds(t.startLat, t.startLon, c) || inBounds(t.endLat, t.endLon, c)),
+					);
+					const hasAndorra = allTrips.some(
+						(t) =>
+							(t.startLat >= 42.42 && t.startLat <= 42.66 && t.startLon >= 1.4 && t.startLon <= 1.8) ||
+							(t.endLat >= 42.42 && t.endLat <= 42.66 && t.endLon >= 1.4 && t.endLon <= 1.8),
+					);
+					const log = [...needed.map((c) => c.country), ...(hasAndorra ? ['AD'] : [])];
+					this.logger.log('Map', `loading GeoJSON for: ${log.join(', ') || 'none'}`);
+					if (needed.length === 0)
+						return of({
+							allTrips,
+							departments: hasAndorra
+								? { type: 'FeatureCollection' as const, features: [ANDORRA_FEATURE] }
+								: null,
+						});
+					return forkJoin(
+						needed.map((c) =>
+							this.http.get<GeoJSON.FeatureCollection>(c.file).pipe(
+								rxMap((fc) => ({
+									...fc,
+									features: fc.features.map((f) => ({
+										...f,
+										properties: { ...f.properties, country: c.country },
+									})),
+								})),
+							),
+						),
+					).pipe(
+						rxMap((collections) => ({
+							allTrips,
+							departments: {
+								type: 'FeatureCollection' as const,
+								features: [
+									...collections.flatMap((c) => c.features),
+									...(hasAndorra ? [ANDORRA_FEATURE] : []),
+								],
+							} as GeoJSON.FeatureCollection,
+						})),
+						catchError(() => {
+							this.logger.warn('Map', 'regions not found, dept mode disabled');
+							return of({ allTrips, departments: null });
+						}),
 					);
 				}),
 			)
 			.subscribe({
-				next: (tripArrays) => {
-					const allTrips = tripArrays.flat();
+				next: ({ allTrips, departments }) => {
+					this.departments = departments;
 					this.logger.log('Map', `total trips: ${allTrips.length}`);
 					this.tripCount.set(allTrips.length);
 					this.totalKm.set(Math.round(allTrips.reduce((sum, t) => sum + t.distance, 0) / 1000));
@@ -1961,12 +2008,20 @@ export class Map {
 			const all = coords.flat();
 			let jumpZoom = this.deptThreshold + 0.1;
 			if (all.length) {
-				const lats = all.map((c) => c[0]);
-				const lons = all.map((c) => c[1]);
+				let minLat = Infinity,
+					maxLat = -Infinity,
+					minLon = Infinity,
+					maxLon = -Infinity;
+				for (const [lat, lon] of all) {
+					if (lat < minLat) minLat = lat;
+					if (lat > maxLat) maxLat = lat;
+					if (lon < minLon) minLon = lon;
+					if (lon > maxLon) maxLon = lon;
+				}
 				const camera = this.map!.cameraForBounds(
 					[
-						[Math.min(...lons), Math.min(...lats)],
-						[Math.max(...lons), Math.max(...lats)],
+						[minLon, minLat],
+						[maxLon, maxLat],
 					],
 					{ padding: 40, maxZoom: fitMaxZoom },
 				);
@@ -1995,12 +2050,20 @@ export class Map {
 	): void {
 		const all = tripCoords.flat();
 		if (!all.length) return;
-		const lats = all.map((c) => c[0]);
-		const lons = all.map((c) => c[1]);
+		let minLat = Infinity,
+			maxLat = -Infinity,
+			minLon = Infinity,
+			maxLon = -Infinity;
+		for (const [lat, lon] of all) {
+			if (lat < minLat) minLat = lat;
+			if (lat > maxLat) maxLat = lat;
+			if (lon < minLon) minLon = lon;
+			if (lon > maxLon) maxLon = lon;
+		}
 		this.map!.fitBounds(
 			[
-				[Math.min(...lons), Math.min(...lats)],
-				[Math.max(...lons), Math.max(...lats)],
+				[minLon, minLat],
+				[maxLon, maxLat],
 			],
 			{ padding: 40, maxZoom, speed, animate },
 		);
