@@ -22,3 +22,9 @@ export interface Trip {
 	averageAngle: number | null;
 	isFavorite: boolean;
 }
+
+export interface MergedTrip extends Trip {
+	tripMergedId: number;
+	customName?: string | null;
+	tripsMerged: Trip[];
+}

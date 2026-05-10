@@ -214,8 +214,8 @@ export class H3Service {
 				dayVisits[date].add(cell);
 				if (!cellDayAssigned[cell]?.has(date)) {
 					(cellDayAssigned[cell] ??= new Set()).add(date);
-					(cellToIndices[cell] ??= []).push(i);
 				}
+				(cellToIndices[cell] ??= []).push(i);
 			}
 		}
 

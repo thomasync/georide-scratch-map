@@ -13,7 +13,7 @@ import {
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
 import { catchError, forkJoin, map as rxMap, of, switchMap } from 'rxjs';
-import { Trip } from '../../core/models/trip';
+import { MergedTrip, Trip } from '../../core/models/trip';
 import { GeorideApiService } from '../../core/services/georide-api';
 import { H3Data, H3Resolution, H3Service, resolutionForZoom } from '../../core/services/h3';
 import { LoggerService } from '../../core/services/logger';
@@ -559,12 +559,19 @@ export class Map {
 	}
 
 	private computeStatsData(): StatsModalData {
+		const startCityCount: Record<string, number> = {};
+		for (const trip of this.tripsWithCoords) {
+			const city = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
+			if (city) startCityCount[city] = (startCityCount[city] ?? 0) + 1;
+		}
+		const homeCity = Object.entries(startCityCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
 		// Villes par département (point-in-polygon sur les coords GPS de chaque trajet)
 		const deptCities: Record<string, Record<string, { count: number; dates: string[] }>> = {};
 		for (const trip of this.tripsWithCoords) {
 			const startCity = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
 			const endCity = this.extractCity(trip.niceEndAddress ?? trip.endAddress);
-			if (!endCity || endCity === startCity) continue;
+			if (!endCity || endCity === startCity || endCity === homeCity) continue;
 			const code = this.findDeptCodeForPoint(trip.endLon, trip.endLat);
 			if (!code) continue;
 			if (!deptCities[code]) deptCities[code] = {};
@@ -612,19 +619,13 @@ export class Map {
 						name: (f.properties?.['nom'] as string) ?? '',
 						pct,
 						trips: (f.properties?.['tripCount'] as number) ?? 0,
+						country: (f.properties?.['country'] as string) ?? 'FR',
 						cities,
 					});
 				}
 				depts.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name, 'fr'));
 			}
 		}
-
-		const startCityCount: Record<string, number> = {};
-		for (const trip of this.tripsWithCoords) {
-			const city = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
-			if (city) startCityCount[city] = (startCityCount[city] ?? 0) + 1;
-		}
-		const homeCity = Object.entries(startCityCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
 		return { homeCity, depts };
 	}
@@ -782,7 +783,20 @@ export class Map {
 					to.setHours(23, 59, 59, 999);
 					return forkJoin(
 						trackers.map((t) => this.api.getTrips(t.trackerId, new Date(t.activationDate), to)),
-					).pipe(rxMap((tripArrays) => tripArrays.flat()));
+					).pipe(
+						rxMap((tripArrays) =>
+							tripArrays
+								.flat()
+								.flatMap((t) =>
+									(t as MergedTrip).tripsMerged?.length
+										? (t as MergedTrip).tripsMerged.map((sub) => ({
+												...sub,
+												isFavorite: t.isFavorite,
+											}))
+										: [t],
+								),
+						),
+					);
 				}),
 				switchMap((allTrips) => {
 					const inBounds = (lat: number, lon: number, c: (typeof COUNTRY_FILES)[number]) =>
@@ -1703,8 +1717,9 @@ export class Map {
 			})
 			.join('');
 
+		const distinctDays = new Set(sorted.map((t) => t.startTime.substring(0, 10))).size;
 		return `<div class="popup-hex">
-      <div class="popup-title">${sorted.length} trajet${sorted.length > 1 ? 's' : ''}</div>
+      <div class="popup-title">${distinctDays} passage${distinctDays > 1 ? 's' : ''}</div>
       <ul class="popup-trips">${rows}</ul>
     </div>`;
 	}

@@ -11,42 +11,61 @@
 		@if (data) {
 			<div class="modal-body" #modalBody>
 				@if (showPrompt()) {
-					<textarea class="prompt-textarea" #promptTextarea>{{ buildPrompt() }}</textarea>
+					<div class="prompt-duration">
+						<span class="prompt-duration-label"
+							>Durée : {{ tripDuration() }}h — ≈ {{ tripKm() }} km — {{ tripStops() }} étape{{
+								tripStops() > 1 ? 's' : ''
+							}}{{
+								tripMealBreaks() > 0
+									? ' + ' + tripMealBreaks() + ' pause' + (tripMealBreaks() > 1 ? 's' : '') + ' repas'
+									: ''
+							}}</span
+						>
+						<input
+							class="prompt-slider"
+							type="range"
+							min="1"
+							max="10"
+							step="1"
+							[value]="tripDuration()"
+							(input)="setDuration($event)"
+						/>
+					</div>
+					<textarea class="prompt-textarea" #promptTextarea [value]="buildPrompt()"></textarea>
 				}
-				<div class="section-title">
-					Départements
-					<span class="section-count"
-						>{{ data.depts.length }} visité{{ data.depts.length > 1 ? 's' : '' }}</span
-					>
-				</div>
 				<div class="list">
-					@for (dept of data.depts; track dept.code) {
-						<div class="dept-block">
-							<div class="dept-row-top">
-								<span class="row-name">{{ dept.name }}</span>
-								<span class="row-pct">{{ dept.pct }}%</span>
-							</div>
-							<div class="dept-bar">
-								<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
-							</div>
-							@if (dept.cities.length > 0) {
-								<div class="city-list">
-									@for (city of dept.cities; track city.name) {
-										<div class="city-row" (click)="toggleCity(dept.code, city.name)">
-											<span class="city-name">{{ city.name }}</span>
-											<span class="row-count">× {{ city.count }}</span>
-										</div>
-										@if (isVisible(dept.code, city.name)) {
-											<div class="city-dates">
-												@for (date of city.dates; track date) {
-													<span class="city-date">{{ date }}</span>
-												}
-											</div>
-										}
-									}
+					@for (group of deptsByCountry(); track group.countryCode) {
+						@if (deptsByCountry().length > 1) {
+							<div class="country-header">{{ group.countryName }}</div>
+						}
+						@for (dept of group.depts; track dept.code) {
+							<div class="dept-block">
+								<div class="dept-row-top">
+									<span class="row-name">{{ dept.name }}</span>
+									<span class="row-pct">{{ dept.pct }}%</span>
 								</div>
-							}
-						</div>
+								<div class="dept-bar">
+									<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
+								</div>
+								@if (dept.cities.length > 0) {
+									<div class="city-list">
+										@for (city of dept.cities; track city.name) {
+											<div class="city-row" (click)="toggleCity(dept.code, city.name)">
+												<span class="city-name">{{ city.name }}</span>
+												<span class="row-count">× {{ city.count }}</span>
+											</div>
+											@if (isVisible(dept.code, city.name)) {
+												<div class="city-dates">
+													@for (date of city.dates; track date) {
+														<span class="city-date">{{ date }}</span>
+													}
+												</div>
+											}
+										}
+									</div>
+								}
+							</div>
+						}
 					}
 				</div>
 			</div>
