@@ -118,18 +118,7 @@ router-outlet {
 }
 
 .maplibregl-popup-close-button {
-	color: var(--text-muted) !important;
-	font-size: 1.1rem !important;
-	padding: 0.3rem 0.5rem !important;
-	border-radius: 0 12px 0 0 !important;
-	transition:
-		color 0.15s,
-		background 0.15s;
-
-	&:hover {
-		color: var(--text) !important;
-		background: var(--border) !important;
-	}
+	display: none !important;
 }
 
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
@@ -152,11 +141,65 @@ router-outlet {
 	margin-left: -1px;
 }
 
+.popup-header-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	margin-bottom: 0.5rem;
+}
+
+.popup-tab-toggle {
+	display: inline-flex;
+	gap: 0;
+	background: rgba(128, 128, 128, 0.15);
+	border-radius: 8px;
+	padding: 2px;
+	align-self: center;
+}
+
+.popup-tab {
+	padding: 0.22rem 0.6rem;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 0.78rem;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transition:
+		background 0.2s,
+		color 0.2s,
+		box-shadow 0.2s;
+
+	&.active {
+		background: var(--surface);
+		color: var(--text);
+		font-weight: 600;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+	}
+
+	&:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+}
+
 .popup-title {
 	font-weight: 700;
 	font-size: 0.85rem;
 	color: var(--accent);
 	margin-bottom: 0.5rem;
+}
+
+.popup-trips--stops {
+	gap: 0 !important;
+
+	.popup-trip {
+		padding: 0.4rem 0.2rem;
+	}
 }
 
 .popup-trips {
@@ -184,7 +227,8 @@ router-outlet {
 		padding-top: 0;
 	}
 
-	&[data-trip-idx] {
+	&[data-trip-idx],
+	&[data-stop-idx] {
 		cursor: pointer;
 		border-radius: 4px;
 		transition: background 0.15s;

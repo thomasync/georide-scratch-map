@@ -24,7 +24,7 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DatabaseService, StoredTrip } from '../../core/services/database';
-import { latLngToCell } from 'h3-js';
+import { getResolution, latLngToCell } from 'h3-js';
 import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
@@ -139,6 +139,8 @@ export class Map {
 	loadingHiding = signal(false);
 	tripCount = signal(0);
 	totalKm = signal(0);
+	hexHoverSpeedAvg = signal(null as number | null);
+	hexHoverSpeedMax = signal(null as number | null);
 	hexagonCount = signal(0);
 	error = signal('');
 	zoom = signal(0);
@@ -161,6 +163,8 @@ export class Map {
 	private popup: maplibregl.Popup | null = null;
 	private selectedTripCoords: [number, number][] | null = null;
 	private keepTripLineOnClose = false;
+	private keepStopsPreviewOnClose = false;
+	private reopeningStopPopup = false;
 	private focusedDeptFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null = null;
 	private focusDragHandler: (() => void) | null = null;
 	private deptFillClickHandler:
@@ -199,12 +203,24 @@ export class Map {
 	private recapDismissed = signal(false);
 
 	colsMode = signal(false);
+	turnsMode = signal(false);
+	stopsMode = signal(false);
+	speedMode = signal(false);
 	elevationLoading = signal(false);
 	elevationBatchDone = signal(0);
 	elevationBatchTotal = signal(0);
 	hexHoverAlt = signal(null as number | null);
+
 	private tripAltProfiles: Record<string, AltProfile> = {};
 	private colsCellCache: Partial<Record<H3Resolution, Record<string, number>>> = {};
+	private turnsCellCache: Partial<Record<H3Resolution, Record<string, number>>> = {};
+	private speedCellCache: Partial<Record<H3Resolution, Record<string, number>>> = {};
+	private speedCellStatsCache: Partial<Record<H3Resolution, Record<string, { avg: number; max: number }>>> = {};
+	private stopPointsCache: GeoJSON.FeatureCollection | null = null;
+	private tripSegmentsCache: Record<string, GeoJSON.FeatureCollection> = {};
+	private allTripsSegmentsFC: GeoJSON.FeatureCollection | null = null;
+	private selectedTrip: TripWithCoords | null = null;
+	private stopPopup: maplibregl.Popup | null = null;
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
@@ -399,6 +415,8 @@ export class Map {
 					})
 				: this.allTripsWithCoords;
 
+		this.allTripsSegmentsFC = null;
+		this.stopPointsCache = null;
 		this.tripCount.set(this.tripsWithCoords.length);
 		this.totalKm.set(Math.round(this.tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000));
 
@@ -491,14 +509,6 @@ export class Map {
 			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 		} else {
 			this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
-		}
-	}
-
-	onViewButtonClick(): void {
-		if (this.isMobile) {
-			this.showViewMenu.set(!this.showViewMenu());
-		} else {
-			this.resetView();
 		}
 	}
 
@@ -1258,6 +1268,95 @@ export class Map {
 			if (this.colsMode()) this.showCols();
 		}
 
+		// --- Turns overlay ---
+		if (!this.map.getSource('turns-heatmap')) {
+			this.map.addSource('turns-heatmap', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'turns-fill',
+				type: 'fill',
+				source: 'turns-heatmap',
+				paint: {
+					'fill-color': [
+						'interpolate',
+						['linear'],
+						['get', 'count'],
+						0,
+						'#f48fb1',
+						30,
+						'#e91e63',
+						60,
+						'#880e4f',
+						90,
+						'#4a0018',
+					],
+					'fill-opacity': [
+						'interpolate',
+						['linear'],
+						['get', 'count'],
+						0,
+						0,
+						10,
+						0.15,
+						30,
+						0.45,
+						60,
+						0.7,
+						90,
+						0.9,
+					],
+				},
+				layout: { visibility: 'none' },
+			});
+			if (this.turnsMode()) this.showTurns();
+		}
+
+		// --- Speed overlay ---
+		if (!this.map.getSource('speed-heatmap')) {
+			this.map.addSource('speed-heatmap', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'speed-fill',
+				type: 'fill',
+				source: 'speed-heatmap',
+				paint: {
+					'fill-color': '#2e7d32',
+					'fill-opacity': [
+						'step',
+						['get', 'count'],
+						0,
+						43,
+						0.2,
+						70,
+						0.4,
+						76,
+						0.55,
+						81,
+						0.7,
+						86,
+						0.9,
+					] as maplibregl.DataDrivenPropertyValueSpecification<number>,
+				},
+				layout: { visibility: 'none' },
+			});
+			this.map.on('mousemove', 'speed-fill', (e) => {
+				const cell = e.features?.[0]?.properties?.['cell'] as string | undefined;
+				const res = this.currentResolution;
+				const stats = cell && res ? this.speedCellStatsCache[res]?.[cell] : undefined;
+				this.hexHoverSpeedAvg.set(stats?.avg ?? null);
+				this.hexHoverSpeedMax.set(stats?.max ?? null);
+			});
+			this.map.on('mouseleave', 'speed-fill', () => {
+				this.hexHoverSpeedAvg.set(null);
+				this.hexHoverSpeedMax.set(null);
+			});
+			if (this.speedMode()) this.showSpeed();
+		}
+
 		// --- All trips polylines (polyline mode) ---
 		if (!this.map.getSource('all-trips')) {
 			this.map.addSource('all-trips', { type: 'geojson', data: this.buildAllTripsGeoJSON() });
@@ -1266,6 +1365,25 @@ export class Map {
 				type: 'line',
 				source: 'all-trips',
 				paint: { 'line-color': '#fdb300', 'line-width': 2, 'line-opacity': 0.75 },
+				layout: { visibility: 'none' },
+			});
+		}
+
+		// --- All-trips enriched segments (colored by mode) ---
+		if (!this.map.getSource('all-trips-segments')) {
+			this.map.addSource('all-trips-segments', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'all-trips-segments-layer',
+				type: 'line',
+				source: 'all-trips-segments',
+				paint: {
+					'line-color': this.segmentColorExpression(),
+					'line-width': 2,
+					'line-opacity': 0.85,
+				},
 				layout: { visibility: 'none' },
 			});
 		}
@@ -1299,6 +1417,127 @@ export class Map {
 					],
 				});
 			}
+		}
+
+		// --- Enriched trip segments (colored by altitude/speed/angle) ---
+		if (!this.map.getSource('trip-line-segments')) {
+			this.map.addSource('trip-line-segments', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'trip-line-segments-layer',
+				type: 'line',
+				source: 'trip-line-segments',
+				paint: {
+					'line-color': this.segmentColorExpression(),
+					'line-width': 3,
+					'line-opacity': 0.9,
+				},
+				layout: { visibility: 'none' },
+			});
+			if (this.selectedTrip) this.showTripSegments(this.selectedTrip);
+		}
+
+		// --- Stops circles (au-dessus des polylines) ---
+		if (!this.map.getSource('stops')) {
+			this.map.addSource('stops', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+				cluster: true,
+				clusterMaxZoom: 13,
+				clusterRadius: 18,
+			});
+			// Clusters
+			this.map.addLayer({
+				id: 'stops-cluster',
+				type: 'circle',
+				source: 'stops',
+				filter: ['has', 'point_count'],
+				paint: {
+					'circle-radius': [
+						'step',
+						['get', 'point_count'],
+						10,
+						5,
+						14,
+						20,
+						18,
+					] as maplibregl.DataDrivenPropertyValueSpecification<number>,
+					'circle-color': '#283593',
+					'circle-stroke-width': 0,
+					'circle-opacity': 0.85,
+				},
+				layout: { visibility: 'none' },
+			});
+			// Points individuels — grossissent quand on dézoom
+			this.map.addLayer({
+				id: 'stops-circle',
+				type: 'circle',
+				source: 'stops',
+				filter: ['!', ['has', 'point_count']],
+				paint: {
+					'circle-radius': [
+						'interpolate',
+						['linear'],
+						['zoom'],
+						4,
+						10,
+						8,
+						6,
+						14,
+						5,
+					] as maplibregl.DataDrivenPropertyValueSpecification<number>,
+					'circle-color': [
+						'interpolate',
+						['linear'],
+						['get', 'count'],
+						1,
+						'#5c6bc0',
+						5,
+						'#3949ab',
+						10,
+						'#283593',
+					] as maplibregl.DataDrivenPropertyValueSpecification<string>,
+					'circle-stroke-width': 0,
+					'circle-opacity': 0.9,
+				},
+				layout: { visibility: 'none' },
+			});
+			this.map.on('click', 'stops-circle', (e) => {
+				const f = e.features?.[0];
+				if (!f) return;
+				const { count, lastDate, address } = f.properties as {
+					count: number;
+					lastDate: string;
+					address: string;
+				};
+				const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+				this.openStopPopup({ count, lastDate, address, coordinates: coords });
+			});
+			this.map.on('mouseenter', 'stops-circle', () => {
+				this.map!.getCanvas().style.cursor = 'pointer';
+			});
+			this.map.on('mouseleave', 'stops-circle', () => {
+				this.map!.getCanvas().style.cursor = '';
+			});
+			this.map.on('click', 'stops-cluster', (e) => {
+				const f = e.features?.[0];
+				if (!f) return;
+				const clusterId = f.properties?.['cluster_id'] as number;
+				const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+				(this.map!.getSource('stops') as maplibregl.GeoJSONSource)
+					.getClusterExpansionZoom(clusterId)
+					.then((zoom) => this.map!.easeTo({ center: coords, zoom: Math.max(zoom, 14) }))
+					.catch(() => {});
+			});
+			this.map.on('mouseenter', 'stops-cluster', () => {
+				this.map!.getCanvas().style.cursor = 'pointer';
+			});
+			this.map.on('mouseleave', 'stops-cluster', () => {
+				this.map!.getCanvas().style.cursor = '';
+			});
+			if (this.stopsMode()) this.showStops();
 		}
 
 		this.updateView();
@@ -1396,8 +1635,32 @@ export class Map {
 			for (const id of ['depts-overlay-fill', 'depts-fill', 'depts-hover', 'depts-labels']) {
 				if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', deptVisible);
 			}
+			const analysisMode = this.colsMode() || this.turnsMode() || this.speedMode();
 			if (this.map.getLayer('all-trips-line')) {
-				this.map.setLayoutProperty('all-trips-line', 'visibility', polylineVisible);
+				this.map.setLayoutProperty(
+					'all-trips-line',
+					'visibility',
+					mode === 'polyline' && !analysisMode ? 'visible' : 'none',
+				);
+			}
+			if (this.map.getLayer('all-trips-segments-layer')) {
+				if (mode === 'polyline' && analysisMode) {
+					(this.map.getSource('all-trips-segments') as maplibregl.GeoJSONSource).setData(
+						this.buildAllTripsSegments(),
+					);
+					this.map.setPaintProperty('all-trips-segments-layer', 'line-color', this.segmentColorExpression());
+					this.map.setPaintProperty(
+						'all-trips-segments-layer',
+						'line-opacity',
+						this.segmentOpacityExpression(),
+					);
+					this.map.setPaintProperty('all-trips-segments-layer', 'line-width', 3);
+					this.map.setLayoutProperty('all-trips-segments-layer', 'visibility', 'visible');
+					// Garde aussi all-trips-line comme base dorée
+					this.map.setLayoutProperty('all-trips-line', 'visibility', 'visible');
+				} else {
+					this.map.setLayoutProperty('all-trips-segments-layer', 'visibility', 'none');
+				}
 			}
 
 			this.popup?.remove();
@@ -1454,6 +1717,20 @@ export class Map {
 				this.map.setLayoutProperty('cols-fill', 'visibility', 'none');
 			} else {
 				this.showCols();
+			}
+		}
+		if (this.turnsMode() && this.map.getLayer('turns-fill')) {
+			if (mode === 'dept') {
+				this.map.setLayoutProperty('turns-fill', 'visibility', 'none');
+			} else {
+				this.showTurns();
+			}
+		}
+		if (this.speedMode() && this.map.getLayer('speed-fill')) {
+			if (mode === 'dept') {
+				this.map.setLayoutProperty('speed-fill', 'visibility', 'none');
+			} else {
+				this.showSpeed();
 			}
 		}
 	}
@@ -1642,6 +1919,16 @@ export class Map {
 	}
 
 	private onHexClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }): void {
+		if (this.stopPopup) {
+			this.stopPopup.remove();
+			return;
+		}
+		if ((this.map?.getZoom() ?? 0) > 17) return;
+		if (
+			this.stopsMode() &&
+			this.map?.queryRenderedFeatures(e.point, { layers: ['stops-circle', 'stops-cluster'] }).length
+		)
+			return;
 		const closingTrip = this.justClosedTrip;
 		this.justClosedTrip = false;
 		this.logger.log(
@@ -1704,17 +1991,47 @@ export class Map {
 		this.keepTripLineOnClose = false;
 		this.clearTripLine();
 
+		const cellRes = getResolution(cell);
+		const stopsData = this.stopPointsCache ?? this.computeStopPoints();
+		const stopsInCell = stopsData.features
+			.filter((f) => {
+				const [lon, lat] = (f.geometry as GeoJSON.Point).coordinates;
+				return latLngToCell(lat, lon, cellRes) === cell;
+			})
+			.map((f) => ({
+				...(f.properties as { count: number; lastDate: string; address: string }),
+				coordinates: (f.geometry as GeoJSON.Point).coordinates as [number, number],
+			}))
+			.sort((a, b) => {
+				const dateDiff = b.lastDate.localeCompare(a.lastDate);
+				return dateDiff !== 0 ? dateDiff : b.count - a.count;
+			});
+
+		this.ensureStopsPreviewLayer();
+		(this.map!.getSource('stops-preview') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features: stopsInCell.map(({ count, lastDate, address, coordinates }) => ({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates },
+				properties: { count, lastDate, address },
+			})),
+		});
+
 		this.popup?.remove();
 		this.openPopupCell = cell;
 		this.popup = new maplibregl.Popup({ maxWidth: 'min(320px, calc(100vw - 2rem))' })
 			.setLngLat(center)
-			.setHTML(this.buildHexPopupHtml(sorted))
+			.setHTML(this.buildHexPopupHtml(sorted, stopsInCell))
 			.addTo(this.map!);
 
 		this.popup.on('close', () => {
 			if (!this.keepTripLineOnClose) this.clearTripLine();
 			this.keepTripLineOnClose = false;
 			this.openPopupCell = null;
+			if (!this.keepStopsPreviewOnClose) {
+				this.map?.setLayoutProperty('stops-preview-circle', 'visibility', 'none');
+			}
+			this.keepStopsPreviewOnClose = false;
 		});
 
 		requestAnimationFrame(() => {
@@ -1725,10 +2042,215 @@ export class Map {
 				item.addEventListener('click', () => {
 					this.keepTripLineOnClose = true;
 					this.showTripLine(sorted[idx]);
+					this.fitToVisited([sorted[idx].coords], 14);
 					this.popup?.remove();
 					this.popup = null;
 				});
 			});
+			el.querySelectorAll<HTMLElement>('.popup-tab').forEach((btn) => {
+				btn.addEventListener('click', () => {
+					const tab = btn.getAttribute('data-tab')!;
+					el.querySelectorAll<HTMLElement>('.popup-tab').forEach((b) =>
+						b.classList.toggle('active', b === btn),
+					);
+					el.querySelectorAll<HTMLElement>('.popup-tab-content').forEach((c) =>
+						c.style.setProperty('display', c.getAttribute('data-content') === tab ? '' : 'none'),
+					);
+					this.map?.setLayoutProperty(
+						'stops-preview-circle',
+						'visibility',
+						tab === 'arrets' ? 'visible' : 'none',
+					);
+					if (tab === 'arrets' && stopsInCell.length && (this.map?.getZoom() ?? 0) <= 12) {
+						this.fitToVisited(
+							[stopsInCell.map(({ coordinates: [lon, lat] }) => [lat, lon] as [number, number])],
+							12,
+							1.7,
+						);
+					}
+				});
+			});
+			el.querySelectorAll<HTMLElement>('[data-stop-idx]').forEach((item) => {
+				const idx = parseInt(item.getAttribute('data-stop-idx')!, 10);
+				const stop = stopsInCell[idx];
+				item.addEventListener('mouseenter', () => {
+					(this.map?.getSource('stops-preview-highlight') as maplibregl.GeoJSONSource)?.setData({
+						type: 'FeatureCollection',
+						features: [
+							{
+								type: 'Feature',
+								geometry: { type: 'Point', coordinates: stop.coordinates },
+								properties: { count: stop.count },
+							},
+						],
+					});
+					if (stopsInCell.length > 1)
+						this.map?.setPaintProperty('stops-preview-circle', 'circle-opacity', 0.3);
+					this.map?.setLayoutProperty('stops-preview-highlight-circle', 'visibility', 'visible');
+				});
+				item.addEventListener('mouseleave', () => {
+					if (stopsInCell.length > 1)
+						this.map?.setPaintProperty('stops-preview-circle', 'circle-opacity', 0.9);
+					this.map?.setLayoutProperty('stops-preview-highlight-circle', 'visibility', 'none');
+				});
+				item.addEventListener('click', () => {
+					this.map?.setLayoutProperty('stops-preview-highlight-circle', 'visibility', 'none');
+					this.keepStopsPreviewOnClose = true;
+					this.popup?.remove();
+					this.popup = null;
+					this.openStopPopup(stop, true);
+				});
+			});
+		});
+	}
+
+	private openStopPopup(
+		stop: { count: number; lastDate: string; address: string; coordinates: [number, number] },
+		flyTo = false,
+	): void {
+		const { address, coordinates } = stop;
+		if (flyTo) {
+			this.keepStopsPreviewOnClose = true;
+			this.map?.flyTo({ center: coordinates, zoom: Math.max(this.map.getZoom(), 12.9), speed: 1.4 });
+		}
+
+		const stopCell = latLngToCell(coordinates[1], coordinates[0], 10);
+		const trips = this.allTripsWithCoords
+			.filter((t) => t.endLat && t.endLon && latLngToCell(t.endLat, t.endLon, 10) === stopCell)
+			.sort((a, b) => b.endTime.localeCompare(a.endTime));
+
+		const city = (addr: string | undefined) =>
+			addr
+				?.split(',')
+				.map((s) => s.trim())
+				.find((s) => s.length > 0) ?? '—';
+		const rows = trips
+			.map((t, idx) => {
+				const date = new Date(t.endTime).toLocaleDateString('fr-FR', {
+					day: '2-digit',
+					month: 'short',
+					year: 'numeric',
+				});
+				const start = city(t.niceStartAddress ?? t.startAddress);
+				const end = city(t.niceEndAddress ?? t.endAddress);
+				return `<li class="popup-trip" data-trip-idx="${idx}">
+				<span class="popup-trip-date">${date}</span>
+				<div class="popup-trip-bottom">
+					<span class="popup-trip-route">${start} → ${end}</span>
+				</div>
+			</li>`;
+			})
+			.join('');
+
+		const label = address || '—';
+		const countLabel = `${trips.length} arrêt${trips.length > 1 ? 's' : ''}`;
+		const gmUrl = `https://www.google.com/maps?q=${coordinates[1]},${coordinates[0]}`;
+
+		this.reopeningStopPopup = true;
+		this.stopPopup?.remove();
+		this.reopeningStopPopup = false;
+		this.stopPopup = new maplibregl.Popup({ maxWidth: 'min(280px, calc(100vw - 2rem))' })
+			.setLngLat(coordinates)
+			.setHTML(
+				`<div class="popup-hex">
+				<div class="popup-title">${label}</div>
+				<div class="popup-trip-date" style="margin-bottom:0.4rem">${countLabel}</div>
+				<ul class="popup-trips">${rows}</ul>
+				<a href="${gmUrl}" target="_blank" rel="noopener" style="display:block;margin-top:6px;font-size:0.75rem;color:#fdb300;text-decoration:none">Ouvrir dans Google Maps ↗</a>
+			</div>`,
+			)
+			.addTo(this.map!);
+		this.stopPopup.on('close', () => {
+			this.stopPopup = null;
+			if (flyTo && !this.reopeningStopPopup)
+				this.map?.setLayoutProperty('stops-preview-circle', 'visibility', 'none');
+		});
+		requestAnimationFrame(() => {
+			const el = this.stopPopup?.getElement();
+			if (!el) return;
+			el.querySelectorAll<HTMLElement>('[data-trip-idx]').forEach((item) => {
+				const idx = parseInt(item.getAttribute('data-trip-idx')!, 10);
+				item.addEventListener('click', () => {
+					this.keepTripLineOnClose = true;
+					this.showTripLine(trips[idx]);
+					this.fitToVisited([trips[idx].coords], 14);
+					this.stopPopup?.remove();
+					this.stopPopup = null;
+				});
+			});
+		});
+	}
+
+	private ensureStopsPreviewLayer(): void {
+		if (!this.map || this.map.getSource('stops-preview')) return;
+		this.map.addSource('stops-preview', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+		this.map.addLayer({
+			id: 'stops-preview-circle',
+			type: 'circle',
+			source: 'stops-preview',
+			paint: {
+				'circle-radius': [
+					'interpolate',
+					['linear'],
+					['zoom'],
+					4,
+					10,
+					8,
+					6,
+					14,
+					5,
+				] as maplibregl.DataDrivenPropertyValueSpecification<number>,
+				'circle-color': [
+					'interpolate',
+					['linear'],
+					['get', 'count'],
+					1,
+					'#5c6bc0',
+					5,
+					'#3949ab',
+					10,
+					'#283593',
+				] as maplibregl.DataDrivenPropertyValueSpecification<string>,
+				'circle-stroke-width': 0,
+				'circle-opacity': 0.9,
+			},
+			layout: { visibility: 'none' },
+		});
+		this.map.addSource('stops-preview-highlight', {
+			type: 'geojson',
+			data: { type: 'FeatureCollection', features: [] },
+		});
+		this.map.addLayer({
+			id: 'stops-preview-highlight-circle',
+			type: 'circle',
+			source: 'stops-preview-highlight',
+			paint: {
+				'circle-radius': [
+					'interpolate',
+					['linear'],
+					['zoom'],
+					4,
+					10,
+					8,
+					6,
+					14,
+					5,
+				] as maplibregl.DataDrivenPropertyValueSpecification<number>,
+				'circle-color': [
+					'interpolate',
+					['linear'],
+					['get', 'count'],
+					1,
+					'#5c6bc0',
+					5,
+					'#3949ab',
+					10,
+					'#283593',
+				] as maplibregl.DataDrivenPropertyValueSpecification<string>,
+				'circle-stroke-width': 0,
+				'circle-opacity': 1,
+			},
+			layout: { visibility: 'none' },
 		});
 	}
 
@@ -1849,9 +2371,18 @@ export class Map {
 			this.hideCols();
 			return;
 		}
+		if (this.turnsMode()) {
+			this.turnsMode.set(false);
+			this.hideTurns();
+		}
+		if (this.speedMode()) {
+			this.speedMode.set(false);
+			this.hideSpeed();
+		}
 		if (Object.keys(this.tripAltProfiles).length > 0) {
 			this.colsMode.set(true);
 			this.showCols();
+			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			return;
 		}
 
@@ -1872,6 +2403,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.colsMode.set(true);
 				this.showCols();
+				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Elevation', 'sync failed', err);
@@ -1903,12 +2435,18 @@ export class Map {
 			switchMap((positions) => {
 				const positionsByTrip = this.matchPositionsToTrips(positions, unsynced);
 
-				// Met à jour les positions en mémoire et invalide le cache
+				// Met à jour les positions en mémoire et invalide les caches
 				for (const trip of unsynced) {
 					const key = `${trip.trackerId}_${trip.startTime}`;
 					if (positionsByTrip[key]) trip.positions = positionsByTrip[key];
 				}
 				this.colsCellCache = {};
+				this.turnsCellCache = {};
+				this.speedCellCache = {};
+				this.speedCellStatsCache = {};
+				this.stopPointsCache = null;
+				this.tripSegmentsCache = {};
+				this.allTripsSegmentsFC = null;
 
 				// Persiste dans IDB
 				const items = Object.entries(positionsByTrip).map(([indexId, pos]) => ({ indexId, positions: pos }));
@@ -2029,11 +2567,341 @@ export class Map {
 		this.map.setLayoutProperty('cols-fill', 'visibility', 'visible');
 	}
 
+	private segmentColorExpression(): maplibregl.DataDrivenPropertyValueSpecification<string> {
+		if (this.turnsMode()) return '#ff1744';
+		if (this.speedMode()) return '#2e7d32';
+		return '#283593'; // cols
+	}
+
+	private segmentOpacityExpression(): maplibregl.DataDrivenPropertyValueSpecification<number> {
+		const prop = this.turnsMode() ? 'is_turn_peak' : this.speedMode() ? 'is_speed_peak' : 'is_alt_peak';
+		return ['case', ['==', ['get', prop], 1], 1, 0] as maplibregl.DataDrivenPropertyValueSpecification<number>;
+	}
+
+	private buildAllTripsSegments(): GeoJSON.FeatureCollection {
+		if (!this.allTripsSegmentsFC) {
+			const features: GeoJSON.Feature[] = [];
+			for (const trip of this.tripsWithCoords) {
+				if (trip.positions?.length) {
+					features.push(...this.buildTripSegments(trip).features);
+				}
+			}
+			this.allTripsSegmentsFC = { type: 'FeatureCollection', features };
+			this.logger.log('Elevation', `all-trips-segments: ${features.length} segments`);
+		}
+		return this.allTripsSegmentsFC;
+	}
+
+	private buildTripSegments(trip: TripWithCoords): GeoJSON.FeatureCollection {
+		if (this.tripSegmentsCache[trip.indexId]) return this.tripSegmentsCache[trip.indexId];
+
+		const positions = trip.positions ?? [];
+		const raw: { coords: [[number, number], [number, number]]; alt: number; speed: number; turn: number }[] = [];
+
+		for (let i = 0; i < positions.length - 1; i++) {
+			const p1 = positions[i];
+			const p2 = positions[i + 1];
+			if (p1.fixtime === p2.fixtime) continue;
+			const delta = Math.abs(p2.angle - p1.angle);
+			raw.push({
+				coords: [
+					[p1.longitude, p1.latitude],
+					[p2.longitude, p2.latitude],
+				],
+				alt: (p1.altitude + p2.altitude) / 2,
+				speed: (p1.speed + p2.speed) / 2,
+				turn: (p1.speed + p2.speed) / 2 > 5 ? (delta > 180 ? 360 - delta : delta) : 0,
+			});
+		}
+
+		const p95 = (arr: number[]) => {
+			const s = [...arr].sort((a, b) => a - b);
+			return s[Math.floor(s.length * 0.95)] ?? 0;
+		};
+		const altP75 = p95(raw.map((r) => r.alt));
+		const spdP75 = p95(raw.map((r) => r.speed));
+		const turnP75 = p95(raw.map((r) => r.turn));
+
+		const features: GeoJSON.Feature[] = raw.map((r) => ({
+			type: 'Feature',
+			geometry: { type: 'LineString', coordinates: r.coords },
+			properties: {
+				is_alt_peak: r.alt >= altP75 && altP75 > 0 ? 1 : 0,
+				is_speed_peak: r.speed >= spdP75 && spdP75 > 0 ? 1 : 0,
+				is_turn_peak: r.turn > 0 && r.turn >= turnP75 && turnP75 > 0 ? 1 : 0,
+			},
+		}));
+
+		const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+		this.tripSegmentsCache[trip.indexId] = fc;
+		return fc;
+	}
+
 	private hideCols(): void {
 		this.hexHoverAlt.set(null);
 		if (this.map?.getLayer('cols-fill')) {
 			this.map.setLayoutProperty('cols-fill', 'visibility', 'none');
 		}
+	}
+
+	toggleTurnsMode(): void {
+		if (this.turnsMode()) {
+			this.turnsMode.set(false);
+			this.hideTurns();
+			return;
+		}
+		if (this.colsMode()) {
+			this.colsMode.set(false);
+			this.hideCols();
+		}
+		if (this.speedMode()) {
+			this.speedMode.set(false);
+			this.hideSpeed();
+		}
+		if (this.stopsMode()) {
+			this.stopsMode.set(false);
+			this.hideStops();
+		}
+
+		for (const res of [6, 7] as H3Resolution[]) {
+			if (!this.cellsByResolution[res]) {
+				const tripData = this.tripsWithCoords.map((t) => ({
+					coords: t.coords,
+					date: t.startTime.substring(0, 10),
+				}));
+				this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
+			}
+		}
+
+		this.elevationLoading.set(true);
+		this.syncTripAltitudes().subscribe({
+			next: () => {
+				this.elevationLoading.set(false);
+				this.turnsMode.set(true);
+				this.showTurns();
+				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			},
+			error: (err) => {
+				this.logger.error('Turns', 'sync failed', err);
+				this.elevationLoading.set(false);
+			},
+		});
+	}
+
+	private showTurns(): void {
+		if (this.currentMode === 'dept') return;
+		const res = this.currentResolution ?? (this.mapSettings.deptResolution() as H3Resolution);
+		const data = this.cellsByResolution[res];
+		if (!data || !this.map?.getSource('turns-heatmap')) return;
+
+		if (!this.turnsCellCache[res]) {
+			const cellTurns: Record<string, number[]> = {};
+			for (const trip of this.allTripsWithCoords) {
+				if (!trip.positions?.length) continue;
+				const pos = trip.positions;
+				for (let i = 0; i < pos.length - 1; i++) {
+					const p1 = pos[i];
+					const p2 = pos[i + 1];
+					if (p1.fixtime === p2.fixtime) continue;
+					if ((p1.speed + p2.speed) / 2 < 5) continue;
+					const delta = Math.abs(p2.angle - p1.angle);
+					const turn = delta > 180 ? 360 - delta : delta;
+					if (turn < 2) continue;
+					const cell = latLngToCell((p1.latitude + p2.latitude) / 2, (p1.longitude + p2.longitude) / 2, res);
+					if (data.counts[cell] !== undefined) (cellTurns[cell] ??= []).push(turn);
+				}
+			}
+			const visitedCells: Record<string, number> = {};
+			for (const [cell, turns] of Object.entries(cellTurns)) {
+				const sorted = [...turns].sort((a, b) => a - b);
+				visitedCells[cell] = sorted[Math.floor(sorted.length * 0.9)];
+			}
+			this.turnsCellCache[res] = visitedCells;
+			this.logger.log('Turns', `res=${res} — ${Object.keys(visitedCells).length} cells`);
+		}
+
+		(this.map.getSource('turns-heatmap') as maplibregl.GeoJSONSource).setData(
+			this.h3.cellsToHeatmapGeoJSON(this.turnsCellCache[res]!),
+		);
+		this.map.setLayoutProperty('turns-fill', 'visibility', 'visible');
+	}
+
+	private hideTurns(): void {
+		if (this.map?.getLayer('turns-fill')) {
+			this.map.setLayoutProperty('turns-fill', 'visibility', 'none');
+		}
+	}
+
+	toggleStopsMode(): void {
+		if (this.stopsMode()) {
+			this.stopsMode.set(false);
+			this.hideStops();
+			return;
+		}
+		this.stopPointsCache = null; // force recalcul avec adresses formatées
+		if (this.turnsMode()) {
+			this.turnsMode.set(false);
+			this.hideTurns();
+		}
+		if (this.speedMode()) {
+			this.speedMode.set(false);
+			this.hideSpeed();
+		}
+		this.stopsMode.set(true);
+		this.showStops();
+		this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+	}
+
+	private showStops(): void {
+		if (!this.map?.getSource('stops')) return;
+		if (!this.stopPointsCache) this.stopPointsCache = this.computeStopPoints();
+		(this.map.getSource('stops') as maplibregl.GeoJSONSource).setData(this.stopPointsCache);
+		for (const id of ['stops-cluster', 'stops-circle']) {
+			if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', 'visible');
+		}
+	}
+
+	private hideStops(): void {
+		for (const id of ['stops-cluster', 'stops-circle']) {
+			if (this.map?.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', 'none');
+		}
+	}
+
+	toggleSpeedMode(): void {
+		if (this.speedMode()) {
+			this.speedMode.set(false);
+			this.hideSpeed();
+			return;
+		}
+		if (this.colsMode()) {
+			this.colsMode.set(false);
+			this.hideCols();
+		}
+		if (this.turnsMode()) {
+			this.turnsMode.set(false);
+			this.hideTurns();
+		}
+		if (this.stopsMode()) {
+			this.stopsMode.set(false);
+			this.hideStops();
+		}
+
+		for (const res of [6, 7] as H3Resolution[]) {
+			if (!this.cellsByResolution[res]) {
+				const tripData = this.tripsWithCoords.map((t) => ({
+					coords: t.coords,
+					date: t.startTime.substring(0, 10),
+				}));
+				this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
+			}
+		}
+
+		this.elevationLoading.set(true);
+		this.syncTripAltitudes().subscribe({
+			next: () => {
+				this.elevationLoading.set(false);
+				this.speedMode.set(true);
+				this.showSpeed();
+				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			},
+			error: (err) => {
+				this.logger.error('Speed', 'sync failed', err);
+				this.elevationLoading.set(false);
+			},
+		});
+	}
+
+	private showSpeed(): void {
+		if (this.currentMode === 'dept') return;
+		const res = this.currentResolution ?? (this.mapSettings.deptResolution() as H3Resolution);
+		const data = this.cellsByResolution[res];
+		if (!data || !this.map?.getSource('speed-heatmap')) return;
+
+		if (!this.speedCellCache[res]) {
+			// cell → tripId → speeds[]
+			const cellTripSpeeds: Record<string, Record<string, number[]>> = {};
+			for (const trip of this.allTripsWithCoords) {
+				if (!trip.positions?.length) continue;
+				for (const p of trip.positions) {
+					if (p.speed < 2) continue;
+					const cell = latLngToCell(p.latitude, p.longitude, res);
+					if (data.counts[cell] === undefined) continue;
+					((cellTripSpeeds[cell] ??= {})[trip.indexId] ??= []).push(p.speed);
+				}
+			}
+			const visitedCells: Record<string, number> = {};
+			const statsCache: Record<string, { avg: number; max: number }> = {};
+			for (const [cell, byTrip] of Object.entries(cellTripSpeeds)) {
+				const allSpeeds = Object.values(byTrip).flat();
+				const sorted = [...allSpeeds].sort((a, b) => a - b);
+				visitedCells[cell] = sorted[Math.floor(sorted.length * 0.9)]; // p90
+				const tripAvgs = Object.values(byTrip).map((s) => s.reduce((a, v) => a + v, 0) / s.length);
+				const maxAvgKmh = Math.round(Math.max(...tripAvgs) * 1.852);
+				const maxKmh = Math.round(Math.max(...allSpeeds) * 1.852);
+				statsCache[cell] = { avg: maxAvgKmh, max: maxKmh };
+			}
+			this.speedCellCache[res] = visitedCells;
+			this.speedCellStatsCache[res] = statsCache;
+			this.logger.log('Speed', `res=${res} — ${Object.keys(visitedCells).length} cells`);
+		}
+
+		(this.map.getSource('speed-heatmap') as maplibregl.GeoJSONSource).setData(
+			this.h3.cellsToHeatmapGeoJSON(this.speedCellCache[res]!),
+		);
+		this.map.setLayoutProperty('speed-fill', 'visibility', 'visible');
+	}
+
+	private hideSpeed(): void {
+		this.hexHoverSpeedAvg.set(null);
+		this.hexHoverSpeedMax.set(null);
+		if (this.map?.getLayer('speed-fill')) {
+			this.map.setLayoutProperty('speed-fill', 'visibility', 'none');
+		}
+	}
+
+	private computeStopPoints(): GeoJSON.FeatureCollection {
+		const DEDUP_RES = 10;
+		const MERGE_METERS = 20;
+		const byCell: Record<string, { lat: number; lon: number; count: number; lastDate: string; address: string }> =
+			{};
+
+		const sorted = [...this.allTripsWithCoords].sort((a, b) => b.endTime.localeCompare(a.endTime));
+		for (const trip of sorted) {
+			const lat = trip.endLat;
+			const lon = trip.endLon;
+			if (!lat || !lon) continue;
+			const cell = latLngToCell(lat, lon, DEDUP_RES);
+			const addr = this.extractCity(trip.niceEndAddress ?? trip.endAddress) ?? '';
+			if (byCell[cell]) {
+				byCell[cell].count++;
+			} else {
+				byCell[cell] = { lat, lon, count: 1, lastDate: trip.endTime, address: addr };
+			}
+		}
+
+		// Second pass: merge stops within 20m, keeping highest count (or most recent if equal)
+		const candidates = Object.values(byCell).sort((a, b) =>
+			b.count !== a.count ? b.count - a.count : b.lastDate.localeCompare(a.lastDate),
+		);
+		const kept: typeof candidates = [];
+		for (const candidate of candidates) {
+			const tooClose = kept.some((k) => {
+				const dlat = (candidate.lat - k.lat) * 111320;
+				const dlon = (candidate.lon - k.lon) * 111320 * Math.cos((k.lat * Math.PI) / 180);
+				return Math.sqrt(dlat * dlat + dlon * dlon) < MERGE_METERS;
+			});
+			if (!tooClose) kept.push(candidate);
+		}
+
+		this.logger.log('Stops', `${kept.length} stop points (${Object.keys(byCell).length} before 20m merge)`);
+		return {
+			type: 'FeatureCollection',
+			features: kept.map(({ lat, lon, count, lastDate, address }) => ({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [lon, lat] },
+				properties: { count, lastDate, address },
+			})),
+		};
 	}
 
 	private clearDeptFocus(): void {
@@ -2098,7 +2966,10 @@ export class Map {
 		];
 	}
 
-	private buildHexPopupHtml(sorted: TripWithCoords[]): string {
+	private buildHexPopupHtml(
+		sorted: TripWithCoords[],
+		stopsInCell: Array<{ count: number; lastDate: string; address: string }>,
+	): string {
 		if (!sorted.length) return '<div class="popup-empty">Aucun trajet trouvé</div>';
 
 		const rows = sorted
@@ -2127,16 +2998,49 @@ export class Map {
 			.join('');
 
 		const distinctDays = new Set(sorted.map((t) => t.startTime.substring(0, 10))).size;
+
+		const stopRows = stopsInCell.length
+			? stopsInCell
+					.map(({ count, lastDate, address }, idx) => {
+						const date = new Date(lastDate).toLocaleDateString('fr-FR', {
+							day: '2-digit',
+							month: 'short',
+							year: 'numeric',
+						});
+						return `<li class="popup-trip" data-stop-idx="${idx}">
+        <span class="popup-trip-date">${date}</span>
+        <div class="popup-trip-bottom">
+          <span class="popup-trip-route">${address || '—'}</span>
+          <span class="popup-trip-km">${count} arrêt${count > 1 ? 's' : ''}</span>
+        </div>
+      </li>`;
+					})
+					.join('')
+			: `<li class="popup-trip" style="color:var(--text-muted);font-size:0.78rem">Aucun arrêt enregistré</li>`;
+
 		return `<div class="popup-hex">
-      <div class="popup-title">${distinctDays} passage${distinctDays > 1 ? 's' : ''}</div>
-      <ul class="popup-trips">${rows}</ul>
+      <div class="popup-header-row">
+        <div class="popup-tab-toggle">
+          <button class="popup-tab active" data-tab="passages" ${distinctDays === 0 ? 'disabled' : ''}>${distinctDays} passage${distinctDays > 1 ? 's' : ''}</button>
+          <button class="popup-tab" data-tab="arrets" ${stopsInCell.length === 0 ? 'disabled' : ''}>${stopsInCell.length} arrêt${stopsInCell.length > 1 ? 's' : ''}</button>
+        </div>
+      </div>
+      <div class="popup-tab-content" data-content="passages">
+        <ul class="popup-trips">${rows}</ul>
+      </div>
+      <div class="popup-tab-content" data-content="arrets" style="display:none">
+        <ul class="popup-trips popup-trips--stops">${stopRows}</ul>
+      </div>
     </div>`;
 	}
 
 	private showTripLine(trip: TripWithCoords): void {
 		this.logger.log('Trip', trip.indexId, trip);
 		if (!this.map || !this.map.getSource('trip-line')) return;
-		const coords = trip.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
+		this.selectedTrip = trip;
+		const coords = trip.positions?.length
+			? trip.positions.map((p) => [p.longitude, p.latitude] as [number, number])
+			: trip.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
 		this.selectedTripCoords = coords;
 		this.currentMode = null;
 		this.updateView();
@@ -2144,15 +3048,36 @@ export class Map {
 			type: 'FeatureCollection',
 			features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }],
 		});
+		if (trip.positions?.length && (this.colsMode() || this.turnsMode() || this.speedMode())) {
+			this.showTripSegments(trip);
+		}
+	}
+
+	private showTripSegments(trip: TripWithCoords): void {
+		if (!this.map?.getSource('trip-line-segments')) return;
+		(this.map.getSource('trip-line-segments') as maplibregl.GeoJSONSource).setData(this.buildTripSegments(trip));
+		this.map.setPaintProperty('trip-line-segments-layer', 'line-color', this.segmentColorExpression());
+		this.map.setPaintProperty('trip-line-segments-layer', 'line-opacity', this.segmentOpacityExpression());
+		this.map.setPaintProperty('trip-line-segments-layer', 'line-width', 4);
+		this.map.setLayoutProperty('trip-line-segments-layer', 'visibility', 'visible');
 	}
 
 	private clearTripLine(skipUpdateView = false): void {
+		this.selectedTrip = null;
 		this.selectedTripCoords = null;
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
 			type: 'FeatureCollection',
 			features: [],
 		});
+		if (this.map.getSource('trip-line-segments')) {
+			(this.map.getSource('trip-line-segments') as maplibregl.GeoJSONSource).setData({
+				type: 'FeatureCollection',
+				features: [],
+			});
+			this.map.setLayoutProperty('trip-line-segments-layer', 'visibility', 'none');
+			this.map.setPaintProperty('trip-line', 'line-opacity', 0.9);
+		}
 		if (!skipUpdateView) {
 			this.currentMode = null;
 			this.updateView();

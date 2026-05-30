@@ -178,8 +178,13 @@ export class DatabaseService {
 						const tx = db.transaction(this.TRIPS, 'readwrite');
 						const store = tx.objectStore(this.TRIPS);
 						for (const trip of trips) {
-							const req = store.put(trip);
-							req.onerror = (e) => e.preventDefault(); // évite l'abort si un put échoue
+							const getReq = store.get(trip.indexId);
+							getReq.onsuccess = () => {
+								const existing = getReq.result as StoredTrip | undefined;
+								const toStore = existing?.positions ? { ...trip, positions: existing.positions } : trip;
+								const putReq = store.put(toStore);
+								putReq.onerror = (e) => e.preventDefault();
+							};
 						}
 						tx.oncomplete = () => {
 							s.next();

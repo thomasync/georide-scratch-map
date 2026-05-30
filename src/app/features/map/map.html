@@ -66,16 +66,19 @@
 	</button>
 
 	<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
-		<button class="ctrl-btn" (click)="onViewButtonClick()" title="Vue complète">
+		<button class="ctrl-btn" title="Vue complète">
 			<img src="world_map.png" alt="" class="ctrl-icon" />
 		</button>
 		@if (showViewMenu()) {
-			<div class="ctrl-menu-backdrop" (click)="showViewMenu.set(false)"></div>
 			<div class="ctrl-menu" (click)="$event.stopPropagation()">
 				<button class="ctrl-menu-item" (click)="viewMyTrips(); showViewMenu.set(false)">
 					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🗺️</span>
 					<span>Mes trajets</span>
 				</button>
+
+				<div class="ctrl-menu-sep"></div>
+
+				<div class="ctrl-menu-cat">Modes</div>
 				<button
 					class="ctrl-menu-item"
 					[class.active]="colsMode()"
@@ -84,6 +87,33 @@
 				>
 					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
 					<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
+				</button>
+				<button
+					class="ctrl-menu-item"
+					[class.active]="turnsMode()"
+					[disabled]="elevationLoading()"
+					(click)="toggleTurnsMode(); showViewMenu.set(false)"
+				>
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">↩️</span>
+					<span>{{ elevationLoading() && turnsMode() ? 'Chargement…' : 'Virages' }}</span>
+				</button>
+				<button
+					class="ctrl-menu-item"
+					[class.active]="stopsMode()"
+					[disabled]="elevationLoading()"
+					(click)="toggleStopsMode(); showViewMenu.set(false)"
+				>
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">📍</span>
+					<span>Arrêts</span>
+				</button>
+				<button
+					class="ctrl-menu-item"
+					[class.active]="speedMode()"
+					[disabled]="elevationLoading()"
+					(click)="toggleSpeedMode(); showViewMenu.set(false)"
+				>
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⚡</span>
+					<span>Vitesse</span>
 				</button>
 
 				<div class="ctrl-menu-sep"></div>
@@ -211,6 +241,18 @@
 					<div class="stat">
 						<span class="stat-value">~{{ hexHoverAlt() }}</span>
 						<span class="stat-label">m alt.</span>
+					</div>
+				}
+				@if (speedMode() && hexHoverSpeedAvg() !== null) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ hexHoverSpeedAvg() }}</span>
+						<span class="stat-label">km/h moy.</span>
+					</div>
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ hexHoverSpeedMax() }}</span>
+						<span class="stat-label">km/h max</span>
 					</div>
 				}
 			}
