@@ -29,9 +29,10 @@ import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
 import { StatsModalComponent, StatsModalData } from './stats-modal';
+import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
 
 type Mode = 'hex' | 'dept' | 'polyline';
-type TripWithCoords = StoredTrip & { coords: [number, number][] };
+export type TripWithCoords = StoredTrip & { coords: [number, number][] };
 
 interface AltProfile {
 	minAlt: number;
@@ -113,7 +114,7 @@ const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 
 @Component({
 	selector: 'app-map',
-	imports: [DevBoxComponent, StatsModalComponent],
+	imports: [DevBoxComponent, StatsModalComponent, TripDetailPanelComponent],
 	templateUrl: './map.html',
 	styleUrl: './map.scss',
 })
@@ -222,6 +223,14 @@ export class Map {
 	private allTripsSegmentsFC: GeoJSON.FeatureCollection | null = null;
 	private selectedTrip: TripWithCoords | null = null;
 	private stopPopup: maplibregl.Popup | null = null;
+
+	showTripPanel = signal(false);
+	selectedTripForPanel = signal<TripWithCoords | null>(null);
+	selectedTripPositions = signal<GeoRidePosition[] | null>(null);
+
+	get allTripsForPanel(): TripWithCoords[] {
+		return this.allTripsWithCoords;
+	}
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
@@ -762,6 +771,31 @@ export class Map {
 				.map((s) => s.trim())
 				.find((s) => s.length > 0 && !/^\d/.test(s)) ?? null
 		);
+	}
+
+	// Quand l'adresse est null, cherche la ville la plus proche parmi les endpoints connus (< 2 km)
+	private inferCityFromCoords(lat: number, lon: number): string | null {
+		if (!lat || !lon) return null;
+		let bestCity: string | null = null;
+		let bestDist = 2; // km — seuil max
+		for (const t of this.allTripsWithCoords) {
+			const candidates: [string | null | undefined, number, number][] = [
+				[t.niceStartAddress ?? t.startAddress, t.startLat, t.startLon],
+				[t.niceEndAddress ?? t.endAddress, t.endLat, t.endLon],
+			];
+			for (const [addr, alat, alon] of candidates) {
+				const city = this.extractCity(addr);
+				if (!city || !alat || !alon) continue;
+				const dLat = (lat - alat) * 111;
+				const dLon = (lon - alon) * 111 * Math.cos(lat * (Math.PI / 180));
+				const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+				if (dist < bestDist) {
+					bestDist = dist;
+					bestCity = city;
+				}
+			}
+		}
+		return bestCity;
 	}
 
 	private get isMobile(): boolean {
@@ -1459,6 +1493,24 @@ export class Map {
 			if (this.selectedTrip) this.showTripSegments(this.selectedTrip);
 		}
 
+		// --- Hover position marker (au-dessus des segments) ---
+		if (!this.map.getSource('hover-position')) {
+			this.map.addSource('hover-position', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'hover-position-layer',
+				type: 'circle',
+				source: 'hover-position',
+				paint: {
+					'circle-radius': 7,
+					'circle-color': '#fdb300',
+					'circle-stroke-width': 0,
+				},
+			});
+		}
+
 		// --- Stops circles (au-dessus des polylines) ---
 		if (!this.map.getSource('stops')) {
 			this.map.addSource('stops', {
@@ -2138,11 +2190,8 @@ export class Map {
 			.filter((t) => t.endLat && t.endLon && latLngToCell(t.endLat, t.endLon, 10) === stopCell)
 			.sort((a, b) => b.endTime.localeCompare(a.endTime));
 
-		const city = (addr: string | undefined) =>
-			addr
-				?.split(',')
-				.map((s) => s.trim())
-				.find((s) => s.length > 0) ?? '—';
+		const city = (addr: string | null | undefined, lat = 0, lon = 0): string =>
+			this.extractCity(addr) ?? addr?.split(',')[0]?.trim() ?? this.inferCityFromCoords(lat, lon) ?? '—';
 		const rows = trips
 			.map((t, idx) => {
 				const date = new Date(t.endTime).toLocaleDateString('fr-FR', {
@@ -2150,8 +2199,8 @@ export class Map {
 					month: 'short',
 					year: 'numeric',
 				});
-				const start = city(t.niceStartAddress ?? t.startAddress);
-				const end = city(t.niceEndAddress ?? t.endAddress);
+				const start = city(t.niceStartAddress ?? t.startAddress, t.startLat, t.startLon);
+				const end = city(t.niceEndAddress ?? t.endAddress, t.endLat, t.endLon);
 				return `<li class="popup-trip" data-trip-idx="${idx}">
 				<span class="popup-trip-date">${date}</span>
 				<div class="popup-trip-bottom">
@@ -3056,13 +3105,10 @@ export class Map {
 					year: 'numeric',
 				});
 				const km = Math.round(t.distance / 1000);
-				const city = (addr: string | undefined) =>
-					addr
-						?.split(',')
-						.map((s) => s.trim())
-						.find((s) => s.length > 0) ?? '—';
-				const start = city(t.niceStartAddress ?? t.startAddress);
-				const end = city(t.niceEndAddress ?? t.endAddress);
+				const city = (addr: string | null | undefined, lat = 0, lon = 0): string =>
+					this.extractCity(addr) ?? addr?.split(',')[0]?.trim() ?? this.inferCityFromCoords(lat, lon) ?? '—';
+				const start = city(t.niceStartAddress ?? t.startAddress, t.startLat, t.startLon);
+				const end = city(t.niceEndAddress ?? t.endAddress, t.endLat, t.endLon);
 				return `<li class="popup-trip" data-trip-idx="${idx}">
         <span class="popup-trip-date">${date}</span>
         <div class="popup-trip-bottom">
@@ -3114,6 +3160,9 @@ export class Map {
 		this.logger.log('Trip', trip.indexId, trip);
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		this.selectedTrip = trip;
+		this.selectedTripForPanel.set(trip);
+		this.selectedTripPositions.set(null);
+		this.showTripPanel.set(true);
 
 		const render = (positions: GeoRidePosition[] | null) => {
 			if (positions?.length) trip.positions = positions;
@@ -3131,6 +3180,7 @@ export class Map {
 			if (trip.positions?.length && (this.colsMode() || this.turnsMode() || this.speedMode())) {
 				this.showTripSegments(trip);
 			}
+			this.selectedTripPositions.set(trip.positions ?? []);
 		};
 
 		if (trip.positions?.length) {
@@ -3194,9 +3244,13 @@ export class Map {
 		this.map.setLayoutProperty('trip-line-segments-layer', 'visibility', 'visible');
 	}
 
-	private clearTripLine(skipUpdateView = false): void {
+	clearTripLine(skipUpdateView = false): void {
 		this.selectedTrip = null;
 		this.selectedTripCoords = null;
+		this.showTripPanel.set(false);
+		this.selectedTripForPanel.set(null);
+		this.selectedTripPositions.set(null);
+		this.clearHoverPosition();
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
 			type: 'FeatureCollection',
@@ -3214,6 +3268,121 @@ export class Map {
 			this.currentMode = null;
 			this.updateView();
 		}
+	}
+
+	onHoverPosition(pos: [number, number] | null): void {
+		if (!this.map?.getSource('hover-position')) return;
+		const source = this.map.getSource('hover-position') as maplibregl.GeoJSONSource;
+		if (pos) {
+			source.setData({
+				type: 'FeatureCollection',
+				features: [
+					{ type: 'Feature', geometry: { type: 'Point', coordinates: [pos[1], pos[0]] }, properties: {} },
+				],
+			});
+		} else {
+			source.setData({ type: 'FeatureCollection', features: [] });
+		}
+	}
+
+	private clearHoverPosition(): void {
+		if (!this.map?.getSource('hover-position')) return;
+		(this.map.getSource('hover-position') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features: [],
+		});
+	}
+
+	onSelectTrip(trip: TripWithCoords): void {
+		this.showTripLine(trip);
+		this.fitToVisited([trip.coords], 14);
+	}
+
+	onFitTrip(): void {
+		if (this.selectedTrip) this.fitToVisited([this.selectedTrip.coords], 14);
+	}
+
+	onFlyToPosition(pos: [number, number]): void {
+		if (!this.map) return;
+		this.map.flyTo({ center: [pos[1], pos[0]], zoom: Math.max(this.map.getZoom(), 13), speed: 1.4 });
+	}
+
+	onFollowPosition(pos: [number, number] | null): void {
+		if (!this.map || !pos) return;
+		const center: [number, number] = [pos[1], pos[0]];
+		if (this.map.getZoom() < 12) {
+			// Premier survol : zoom + centre animé
+			this.map.easeTo({ center, zoom: 14, duration: 400 });
+		} else {
+			// Suivi instantané sans animation pour ne pas ramer
+			this.map.jumpTo({ center });
+		}
+	}
+
+	onShowFullDay(trips: TripWithCoords[]): void {
+		if (!trips.length || !this.map?.getSource('trip-line')) return;
+
+		// Trier chronologiquement
+		const sorted = [...trips].sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+		// Afficher toutes les polylines sur la carte
+		const features = sorted.map((t) => {
+			const coords = t.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
+			return {
+				type: 'Feature' as const,
+				geometry: { type: 'LineString' as const, coordinates: coords },
+				properties: {},
+			};
+		});
+		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features,
+		});
+		this.currentMode = null;
+		this.updateView();
+		this.fitToVisited(
+			sorted.map((t) => t.coords),
+			14,
+		);
+
+		// Charger les positions de tous les trajets, puis fusionner pour le panel
+		const posObs = sorted.map((t) => (t.positions?.length ? of(t.positions) : this.db.getTripPositions(t.indexId)));
+		forkJoin(posObs).subscribe((allPos) => {
+			const mergedPositions = (allPos as (GeoRidePosition[] | null)[])
+				.flat()
+				.filter((p): p is GeoRidePosition => p != null)
+				.sort((a, b) => a.fixtime.localeCompare(b.fixtime));
+
+			const first = sorted[0];
+			const last = sorted[sorted.length - 1];
+			const totalDist = sorted.reduce((s, t) => s + t.distance, 0);
+			const totalDur = sorted.reduce((s, t) => s + t.duration, 0);
+			const avgSpeed =
+				totalDist > 0 ? sorted.reduce((s, t) => s + t.averageSpeed * t.distance, 0) / totalDist : 0;
+
+			const mergedTrip: TripWithCoords = {
+				...first,
+				distance: totalDist,
+				duration: totalDur,
+				averageSpeed: Math.round(avgSpeed),
+				maxSpeed: Math.max(...sorted.map((t) => t.maxSpeed)),
+				startTime: first.startTime,
+				endTime: last.endTime,
+				startLat: first.startLat,
+				startLon: first.startLon,
+				endLat: last.endLat,
+				endLon: last.endLon,
+				startAddress: first.startAddress,
+				niceStartAddress: first.niceStartAddress,
+				endAddress: last.endAddress,
+				niceEndAddress: last.niceEndAddress,
+				coords: sorted.flatMap((t) => t.coords),
+				positions: mergedPositions,
+			};
+
+			this.selectedTripForPanel.set(mergedTrip);
+			this.selectedTripPositions.set(mergedPositions.length ? mergedPositions : []);
+		});
 	}
 
 	private pointInFeature(lng: number, lat: number, feature: GeoJSON.Feature): boolean {
@@ -3526,12 +3695,15 @@ export class Map {
 			if (lon < minLon) minLon = lon;
 			if (lon > maxLon) maxLon = lon;
 		}
+		// Si le panel de trajet est visible, on laisse de la place en bas pour le graphique
+		const padding = this.showTripPanel() ? { top: 80, right: 60, bottom: 320, left: 60 } : 40;
+		const effectiveMaxZoom = this.showTripPanel() ? Math.min(maxZoom, 13) : maxZoom;
 		this.map!.fitBounds(
 			[
 				[minLon, minLat],
 				[maxLon, maxLat],
 			],
-			{ padding: 40, maxZoom, speed, animate },
+			{ padding, maxZoom: effectiveMaxZoom, speed, animate },
 		);
 	}
 }

@@ -191,7 +191,7 @@
 
 @if (!loading() && !error()) {
 	<!-- Feature: bottom UI (filter bar + stats panel) -->
-	<div class="bottom-ui">
+	<div class="bottom-ui" [class.bottom-ui--hidden]="showTripPanel()">
 		<!-- Stats panel -->
 		<div class="stats-panel">
 			@if (focusStats(); as fs) {
@@ -272,7 +272,7 @@
 			}
 		</div>
 
-		<!-- Filter bar -->
+		<!-- Filter bar (hidden when trip panel is open) -->
 		<div class="filter-bar">
 			@if (seasonFilter(); as season) {
 				<button class="filter-chip active" (click)="selectSeason(season)">
@@ -361,6 +361,21 @@
 
 @if (showStatsModal()) {
 	<app-stats-modal [data]="statsModalData()" (close)="closeStatsModal()" />
+}
+
+@if (showTripPanel()) {
+	<app-trip-detail-panel
+		[trip]="selectedTripForPanel()"
+		[positions]="selectedTripPositions()"
+		[allTrips]="allTripsForPanel"
+		(hoverPosition)="onHoverPosition($event)"
+		(closePanelEvent)="clearTripLine()"
+		(showFullDayEvent)="onShowFullDay($event)"
+		(flyToPosition)="onFlyToPosition($event)"
+		(followPosition)="onFollowPosition($event)"
+		(fitTripEvent)="onFitTrip()"
+		(selectTripEvent)="onSelectTrip($event)"
+	/>
 }
 
 @if (isDevMode) {

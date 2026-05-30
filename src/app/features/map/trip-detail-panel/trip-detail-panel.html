@@ -1,0 +1,176 @@
+<!-- Colonne gauche : graphique + stats -->
+<div class="tdp-left">
+	<!-- Carte 1 : graphique -->
+	@if (positionsLoading) {
+		<div class="tdp-card tdp-card--chart">
+			<div class="tdp-loading">Chargement du profil…</div>
+		</div>
+	} @else if (combinedChartData.datasets.length > 0) {
+		<div class="tdp-card tdp-card--chart">
+			<div class="tdp-section-title">
+				Profil du trajet
+				@if (hoverTime !== null) {
+					<span class="tdp-hover-stat tdp-hover-time">{{ hoverTime }}</span>
+					<span class="tdp-hover-stat tdp-hover-km">{{ hoverKm }} km</span>
+					@if (hoverAlt !== null) {
+						<span class="tdp-hover-stat tdp-hover-alt">{{ hoverAlt }} m</span>
+					}
+					<span class="tdp-hover-stat tdp-hover-speed">{{ hoverSpeed }} km/h</span>
+					@if (hoverAngle !== null) {
+						<span class="tdp-hover-stat tdp-hover-angle">{{ hoverAngle }}°</span>
+					}
+				}
+				<button
+					class="tdp-follow-btn"
+					[class.active]="followEnabled"
+					(click)="onToggleFollow()"
+					[title]="followEnabled ? 'Désactiver le suivi' : 'Suivre sur la carte'"
+				>
+					<svg
+						width="11"
+						height="11"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+					>
+						<circle cx="12" cy="12" r="4" />
+						<line x1="12" y1="2" x2="12" y2="7" />
+						<line x1="12" y1="17" x2="12" y2="22" />
+						<line x1="2" y1="12" x2="7" y2="12" />
+						<line x1="17" y1="12" x2="22" y2="12" />
+					</svg>
+					Suivre
+				</button>
+			</div>
+			<div
+				class="tdp-chart-wrap"
+				(mouseleave)="onMouseLeaveChart()"
+				(touchstart)="onChartTouchStart($event)"
+				(touchmove)="onChartTouchMove($event)"
+			>
+				<canvas
+					baseChart
+					[data]="combinedChartData"
+					[options]="combinedChartOptions"
+					[plugins]="[verticalLinePlugin]"
+					type="line"
+				>
+				</canvas>
+			</div>
+		</div>
+	}
+
+	<!-- Carte 2 : en-tête + stats -->
+	<div class="tdp-card tdp-card--info">
+		<div class="tdp-header">
+			<div class="tdp-header-left">
+				<div class="tdp-route">{{ startLabel }} → {{ endLabel }}</div>
+				<div class="tdp-date">{{ dateLabel }} · {{ startTimeLabel }} → {{ endTimeLabel }}</div>
+			</div>
+			@if (dayTrips.length > 1) {
+				@if (!isLoopActive) {
+					<button class="tdp-fullday-btn" (click)="onShowFullDay()" [title]="dayLabel">
+						<svg
+							width="13"
+							height="13"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.5"
+							stroke-linecap="round"
+						>
+							<path d="M3 12h18M3 6h18M3 18h18" />
+						</svg>
+						{{ dayLabel }}
+					</button>
+				} @else {
+					<div class="tdp-trips-wrap">
+						<button class="tdp-fullday-btn tdp-trips-btn" (click)="onToggleTripsPopup($event)">
+							<svg
+								width="12"
+								height="12"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+							>
+								<path d="M3 6h18M3 12h18M3 18h18" />
+							</svg>
+							Trajets ({{ dayTrips.length }})
+						</button>
+						@if (showTripsPopup) {
+							<div class="tdp-trips-popup">
+								@for (t of dayTrips; track t.indexId) {
+									<button class="tdp-trips-popup-item" (click)="onSelectTrip(t, $event)">
+										<span class="tdp-trips-popup-date">{{ tripDate(t) }}</span>
+										<span class="tdp-trips-popup-route">{{ tripRoute(t) }}</span>
+										<span class="tdp-trips-popup-km">{{ roundKm(t.distance) }} km</span>
+									</button>
+								}
+							</div>
+						}
+					</div>
+				}
+			}
+			<button class="tdp-close" (click)="onClose()" title="Fermer">✕</button>
+		</div>
+		<div class="tdp-stats-row">
+			<span class="tdp-stat-item"
+				><b>{{ distanceKm }}</b> km</span
+			>
+			<span class="tdp-stat-sep">·</span>
+			<span class="tdp-stat-item"
+				><b>{{ totalDurationStr }}</b> total</span
+			>
+			<span class="tdp-stat-sep">·</span>
+			<span class="tdp-stat-item"
+				><b>{{ durationStr }}</b> roulé</span
+			>
+			<span class="tdp-stat-sep">·</span>
+			<span class="tdp-stat-item"
+				><b>{{ avgSpeedKmh }}</b> km/h moy.</span
+			>
+			<span class="tdp-stat-sep">·</span>
+			<span class="tdp-stat-item"
+				><b>{{ maxSpeedKmh }}</b> km/h max</span
+			>
+			@if (altMax > 0) {
+				<span class="tdp-stat-sep">·</span>
+				<span class="tdp-stat-item"
+					><b>{{ altMin }}→{{ altMax }}</b> m alt.</span
+				>
+			}
+			@if (maxAngleTrip > 0) {
+				<span class="tdp-stat-sep">·</span>
+				<span class="tdp-stat-item"
+					><b>{{ maxAngleTrip }}°</b> inclinaison max</span
+				>
+			}
+		</div>
+	</div>
+</div>
+
+<!-- Colonne droite : villes traversées (seulement si > 2 villes distinctes) -->
+@if (cities.length >= 3) {
+	<div class="tdp-card tdp-card--cities">
+		<div class="tdp-cities-scroll">
+			<div class="tdp-section-title">Villes traversées</div>
+			<div class="tdp-cities">
+				@for (city of cities; track $index) {
+					<div
+						class="tdp-city-row"
+						(mouseenter)="onCityEnter(city)"
+						(mouseleave)="onCityLeave()"
+						(click)="onCityClick(city)"
+					>
+						<span class="tdp-city-name">{{ city.name }}</span>
+						<span class="tdp-city-time">{{ city.time }}</span>
+					</div>
+				}
+			</div>
+		</div>
+	</div>
+}
