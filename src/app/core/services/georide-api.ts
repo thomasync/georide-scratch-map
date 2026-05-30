@@ -9,6 +9,16 @@ import { LoggerService } from './logger';
 
 const API_URL = 'https://api.georide.com';
 
+export interface GeoRidePosition {
+	fixtime: string;
+	latitude: number;
+	longitude: number;
+	altitude: number;
+	speed: number;
+	angle: number;
+	address: string | null;
+}
+
 @Injectable({
 	providedIn: 'root',
 })
@@ -55,5 +65,13 @@ export class GeorideApiService {
 		return this.http
 			.get<Position[]>(url)
 			.pipe(tap((p) => this.logger.log('GeorideApi', `S3 response — ${p.length} position(s)`)));
+	}
+
+	getPositions(trackerId: number, from: string, to: string): Observable<GeoRidePosition[]> {
+		const params = { from, to };
+		this.logger.log('GeorideApi', `GET /tracker/${trackerId}/trips/positions`, params);
+		return this.http
+			.get<GeoRidePosition[]>(`${API_URL}/tracker/${trackerId}/trips/positions`, { params })
+			.pipe(tap((p) => this.logger.log('GeorideApi', `positions response — ${p.length} position(s)`)));
 	}
 }
