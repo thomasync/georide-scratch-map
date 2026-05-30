@@ -23,6 +23,7 @@ import { ScreenshotService } from '../../core/services/screenshot';
 import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
+import { DatabaseService, StoredTrip } from '../../core/services/database';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
 import { StatsModalComponent, StatsModalData } from './stats-modal';
@@ -66,6 +67,26 @@ const DATE_FILTER_LABELS: Record<DateFilterPreset, string> = {
 	custom: 'Choisir…',
 };
 
+const NEIGHBORING_COUNTRIES = [
+	{ code: 'ES', name: 'Espagne', flag: '🇪🇸', minLat: 35.9, maxLat: 43.8, minLon: -9.3, maxLon: 4.4 },
+	{ code: 'AD', name: 'Andorre', flag: '🇦🇩', minLat: 42.42, maxLat: 42.66, minLon: 1.4, maxLon: 1.8 },
+	{ code: 'BE', name: 'Belgique', flag: '🇧🇪', minLat: 49.5, maxLat: 51.5, minLon: 2.5, maxLon: 6.4 },
+	{ code: 'LU', name: 'Luxembourg', flag: '🇱🇺', minLat: 49.4, maxLat: 50.2, minLon: 5.7, maxLon: 6.5 },
+	{ code: 'DE', name: 'Allemagne', flag: '🇩🇪', minLat: 47.3, maxLat: 55.1, minLon: 6.0, maxLon: 15.0 },
+	{ code: 'CH', name: 'Suisse', flag: '🇨🇭', minLat: 45.8, maxLat: 47.8, minLon: 6.0, maxLon: 10.5 },
+	{ code: 'IT', name: 'Italie', flag: '🇮🇹', minLat: 36.6, maxLat: 47.1, minLon: 7.6, maxLon: 18.5 },
+	{ code: 'MC', name: 'Monaco', flag: '🇲🇨', minLat: 43.72, maxLat: 43.78, minLon: 7.37, maxLon: 7.44 },
+] as const;
+type NeighboringCountry = (typeof NEIGHBORING_COUNTRIES)[number];
+
+const SEASONS = [
+	{ name: 'Printemps', emoji: '🌸', months: [3, 4, 5] as number[] },
+	{ name: 'Été', emoji: '☀️', months: [6, 7, 8] as number[] },
+	{ name: 'Automne', emoji: '🍂', months: [9, 10, 11] as number[] },
+	{ name: 'Hiver', emoji: '❄️', months: [12, 1, 2] as number[] },
+] as const;
+type Season = (typeof SEASONS)[number];
+
 const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 	'all',
 	'today',
@@ -100,6 +121,7 @@ export class Map {
 	private demo = inject(DemoService);
 	private router = inject(Router);
 	mapSettings = inject(MapSettingsService);
+	private db = inject(DatabaseService);
 
 	get isDemo(): boolean {
 		return this.router.url.startsWith('/demo');
@@ -146,8 +168,8 @@ export class Map {
 	private justClosedTrip = false;
 	private openPopupCell: string | null = null;
 
-	private readonly LAST_CLEARED_KEY = 'georide_last_cleared_ts_v1';
-	private readonly RECAP_DISMISSED_KEY = 'georide_recap_dismissed_v1';
+	private lastClearedTs = 0;
+	private recapDismissedTs = 0;
 	private newCellsR7 = new Set<string>();
 	private newCellsR7Computed = false;
 	private allR7Data: H3Data | null = null;
@@ -155,6 +177,11 @@ export class Map {
 	private savedNewCellsR7 = new Set<string>();
 
 	showControlMenu = signal(false);
+	showViewMenu = signal(false);
+	visitedNeighboringCountries = signal<NeighboringCountry[]>([]);
+	seasonFilter = signal<Season | null>(null);
+	visitedSeasons = signal<Season[]>([]);
+	private viewMenuHideTimer: ReturnType<typeof setTimeout> | null = null;
 	showStatsModal = signal(false);
 	statsModalData = signal<StatsModalData | null>(null);
 
@@ -165,7 +192,15 @@ export class Map {
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
+	selectSeason(season: Season): void {
+		const current = this.seasonFilter();
+		this.seasonFilter.set(current?.name === season.name ? null : season);
+		this.dateFilter.set('all');
+		this.applyDateFilter();
+	}
+
 	selectFilter(filter: DateFilterPreset): void {
+		this.seasonFilter.set(null);
 		this.dateFilter.set(filter);
 		if (filter === 'custom') {
 			const yyyy = new Date().getFullYear();
@@ -337,12 +372,16 @@ export class Map {
 	private applyDateFilter(): void {
 		this.lockDeptFocus = true;
 		const range = this.getDateRange(this.dateFilter());
-		this.tripsWithCoords = range
-			? this.allTripsWithCoords.filter((t) => {
-					const d = new Date(t.startTime);
-					return d >= range.from && d <= range.to;
-				})
-			: this.allTripsWithCoords;
+		const season = this.seasonFilter();
+		this.tripsWithCoords =
+			range || season
+				? this.allTripsWithCoords.filter((t) => {
+						const d = new Date(t.startTime);
+						if (range && (d < range.from || d > range.to)) return false;
+						if (season && !season.months.includes(d.getMonth() + 1)) return false;
+						return true;
+					})
+				: this.allTripsWithCoords;
 
 		this.tripCount.set(this.tripsWithCoords.length);
 		this.totalKm.set(Math.round(this.tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000));
@@ -439,6 +478,40 @@ export class Map {
 		}
 	}
 
+	openViewMenu(): void {
+		if (this.viewMenuHideTimer) {
+			clearTimeout(this.viewMenuHideTimer);
+			this.viewMenuHideTimer = null;
+		}
+		this.showViewMenu.set(true);
+	}
+
+	closeViewMenu(): void {
+		this.viewMenuHideTimer = setTimeout(() => this.showViewMenu.set(false), 200);
+	}
+
+	viewMyTrips(): void {
+		if (!this.map || this.tripsWithCoords.length === 0) return;
+		this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+	}
+
+	viewFrance(): void {
+		if (!this.map) return;
+		const targetZoom = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
+		this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
+	}
+
+	viewCountry(country: NeighboringCountry): void {
+		if (!this.map) return;
+		this.map.fitBounds(
+			[
+				[country.minLon, country.minLat],
+				[country.maxLon, country.maxLat],
+			],
+			{ padding: 40, speed: 1.2 },
+		);
+	}
+
 	goToLogin(): void {
 		this.router.navigate(['/login']);
 	}
@@ -472,8 +545,8 @@ export class Map {
 		});
 
 		effect(() => {
-			const start = this.mapSettings.cityLabelsFadeStart();
-			const end = this.mapSettings.cityLabelsFadeEnd();
+			this.mapSettings.cityLabelsFadeStart();
+			this.mapSettings.cityLabelsFadeEnd();
 			untracked(() => {
 				if (this.map) this.hideCityLabels();
 			});
@@ -489,13 +562,11 @@ export class Map {
 		});
 
 		effect(() => {
-			const thresholds = [
-				this.mapSettings.deptModeZoomThresholdDesk(),
-				this.mapSettings.deptModeZoomThresholdMob(),
-				this.mapSettings.polylineModeZoomThresholdDesk(),
-				this.mapSettings.polylineModeZoomThresholdMob(),
-				this.mapSettings.deptFocusExitDelta(),
-			];
+			this.mapSettings.deptModeZoomThresholdDesk();
+			this.mapSettings.deptModeZoomThresholdMob();
+			this.mapSettings.polylineModeZoomThresholdDesk();
+			this.mapSettings.polylineModeZoomThresholdMob();
+			this.mapSettings.deptFocusExitDelta();
 			untracked(() => {
 				if (this.map) {
 					this.currentResolution = null;
@@ -774,26 +845,61 @@ export class Map {
 			{ country: 'ES', file: '/spain.geojson', minLat: 27.6, maxLat: 43.8, minLon: -18.2, maxLon: 4.4 },
 		];
 
-		this.api
-			.getTrackers()
+		forkJoin([
+			this.db.getAllTrips(),
+			this.db.kvGet<number>('lastSyncAt'),
+			this.db.kvGet<number>('lastClearedTs'),
+			this.db.kvGet<number>('recapDismissedTs'),
+		])
 			.pipe(
-				switchMap((trackers) => {
-					this.logger.log('Map', `got ${trackers.length} tracker(s), fetching trips`);
+				switchMap(([localTrips, lastSyncAt, lastClearedTs, recapDismissedTs]) => {
+					this.lastClearedTs = lastClearedTs ?? 0;
+					this.recapDismissedTs = recapDismissedTs ?? 0;
+					if (lastSyncAt !== null && localTrips.length > 0) {
+						return of(localTrips);
+					}
+
 					const to = new Date();
 					to.setHours(23, 59, 59, 999);
-					return forkJoin(
-						trackers.map((t) => this.api.getTrips(t.trackerId, new Date(t.activationDate), to)),
-					).pipe(
-						rxMap((tripArrays) =>
-							tripArrays.flat().flatMap((t) =>
-								(t as MergedTrip).tripsMerged?.length
-									? (t as MergedTrip).tripsMerged.map((sub) => ({
+
+					const from =
+						lastSyncAt && localTrips.length > 0 ? new Date(lastSyncAt - 24 * 60 * 60 * 1000) : null;
+
+					return this.api.getTrackers().pipe(
+						switchMap((trackers) => {
+							this.logger.log('Map', `got ${trackers.length} tracker(s), syncing delta`);
+							return forkJoin(
+								trackers.map((t) =>
+									this.api.getTrips(t.trackerId, from ?? new Date(t.activationDate), to),
+								),
+							).pipe(
+								rxMap((tripArrays) => {
+									const flat = tripArrays.flat().flatMap((t) => {
+										const merged = t as MergedTrip;
+										if (!merged.tripsMerged?.length) return [t];
+										const subs = merged.tripsMerged.map((sub) => ({
 											...sub,
 											isFavorite: t.isFavorite,
-										}))
-									: [t],
-							),
-						),
+										}));
+										return subs.length > 0 ? subs : [{ ...t }];
+									});
+									// indexId = clé stable unique indépendante de l'id API (qui peut être null)
+									const withIndexId: StoredTrip[] = flat.map((t) => ({
+										...t,
+										indexId: `${t.trackerId}_${t.startTime}`,
+									}));
+									return { localTrips, newTrips: withIndexId };
+								}),
+							);
+						}),
+						switchMap(({ localTrips, newTrips }) => {
+							const newIndexIds = new Set(newTrips.map((t) => t.indexId));
+							const merged = [...localTrips.filter((t) => !newIndexIds.has(t.indexId)), ...newTrips];
+							return forkJoin([
+								this.db.upsertTrips(newTrips),
+								this.db.kvSet('lastSyncAt', Date.now(), 60 * 60 * 1000),
+							]).pipe(rxMap(() => merged));
+						}),
 					);
 				}),
 				switchMap((allTrips) => {
@@ -860,6 +966,23 @@ export class Map {
 						}))
 						.filter((t) => t.coords.length > 0) as TripWithCoords[];
 					this.tripsWithCoords = this.allTripsWithCoords;
+					this.visitedNeighboringCountries.set(
+						NEIGHBORING_COUNTRIES.filter((c) =>
+							this.allTripsWithCoords.some((t) =>
+								t.coords.some(
+									([lat, lon]) =>
+										lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
+								),
+							),
+						) as NeighboringCountry[],
+					);
+					this.visitedSeasons.set(
+						SEASONS.filter((s) =>
+							this.allTripsWithCoords.some((t) =>
+								s.months.includes(new Date(t.startTime).getMonth() + 1),
+							),
+						) as Season[],
+					);
 					this.updateAvailablePresets();
 
 					this.logger.log('Map', `computing H3 cells for resolution 6`);
@@ -1783,10 +1906,10 @@ export class Map {
 		const dayBeforeYesterday = new Date(yesterday);
 		dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
 		dayBeforeYesterday.setHours(23, 59, 59, 999);
-		try {
-			localStorage.setItem(this.LAST_CLEARED_KEY, String(dayBeforeYesterday.getTime()));
-			localStorage.removeItem(this.RECAP_DISMISSED_KEY);
-		} catch {}
+		this.lastClearedTs = dayBeforeYesterday.getTime();
+		this.recapDismissedTs = 0;
+		this.db.kvSet('lastClearedTs', this.lastClearedTs).subscribe();
+		this.db.kvDelete('recapDismissedTs').subscribe();
 
 		window.location.reload();
 	}
@@ -1802,23 +1925,9 @@ export class Map {
 		cutoff.setDate(cutoff.getDate() - this.NEW_CELLS_MAX_AGE_DAYS);
 		const cutoffStr = cutoff.toISOString().substring(0, 10);
 
-		const dismissedTs = (() => {
-			try {
-				return parseInt(localStorage.getItem(this.RECAP_DISMISSED_KEY) ?? '0', 10);
-			} catch {
-				return 0;
-			}
-		})();
+		const dismissedTs = this.recapDismissedTs;
 		if (dismissedTs > 0 || referenceDate) this.recapDismissed.set(true);
-		const lastClearedTs = referenceDate
-			? 0
-			: (() => {
-					try {
-						return parseInt(localStorage.getItem(this.LAST_CLEARED_KEY) ?? '0', 10);
-					} catch {
-						return 0;
-					}
-				})();
+		const lastClearedTs = referenceDate ? 0 : this.lastClearedTs;
 		const lastClearedDate = new Date(lastClearedTs).toISOString().substring(0, 10);
 
 		const candidates = Object.keys(data.counts).filter((cell) => {
@@ -1901,17 +2010,15 @@ export class Map {
 
 	dismissRecap(): void {
 		this.showNewCellsRecap.set(false);
-		try {
-			localStorage.setItem(this.RECAP_DISMISSED_KEY, String(Date.now()));
-		} catch {}
+		this.recapDismissedTs = Date.now();
+		this.db.kvSet('recapDismissedTs', this.recapDismissedTs).subscribe();
 		this.recapDismissed.set(true);
 		this.clearNewCells();
 	}
 
 	reopenRecap(): void {
-		try {
-			localStorage.removeItem(this.RECAP_DISMISSED_KEY);
-		} catch {}
+		this.recapDismissedTs = 0;
+		this.db.kvDelete('recapDismissedTs').subscribe();
 		this.recapDismissed.set(false);
 		this.newCellsR7 = new Set(this.savedNewCellsR7);
 		this.currentMode = null;

@@ -8,7 +8,8 @@
       "Bash(curl -s https://api.georide.com/api_data.js)",
       "Read(//tmp/**)",
       "Bash(node -e ' *)",
-      "mcp__chrome-devtools__take_snapshot"
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__evaluate_script"
     ]
   }
 }

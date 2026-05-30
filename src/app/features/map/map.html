@@ -65,9 +65,47 @@
 		<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
 	</button>
 
-	<button class="ctrl-btn" (click)="resetView()" title="Vue France complète">
-		<img src="world_map.png" alt="" class="ctrl-icon" />
-	</button>
+	<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
+		<button class="ctrl-btn" (click)="resetView()" title="Vue complète">
+			<img src="world_map.png" alt="" class="ctrl-icon" />
+		</button>
+		@if (showViewMenu()) {
+			<div class="ctrl-menu">
+				<button class="ctrl-menu-item" (click)="viewMyTrips(); showViewMenu.set(false)">
+					<img src="world_map.png" alt="" class="ctrl-menu-icon" />
+					<span>Mes trajets</span>
+				</button>
+
+				<div class="ctrl-menu-sep"></div>
+
+				<div class="ctrl-menu-cat">Saisons</div>
+				@for (season of visitedSeasons(); track season.name) {
+					<button
+						class="ctrl-menu-item"
+						[class.active]="seasonFilter()?.name === season.name"
+						(click)="selectSeason(season); showViewMenu.set(false)"
+					>
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ season.emoji }}</span>
+						<span>{{ season.name }}</span>
+					</button>
+				}
+
+				<div class="ctrl-menu-sep"></div>
+
+				<div class="ctrl-menu-cat">Pays</div>
+				<button class="ctrl-menu-item" (click)="viewFrance(); showViewMenu.set(false)">
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🇫🇷</span>
+					<span>France</span>
+				</button>
+				@for (country of visitedNeighboringCountries(); track country.code) {
+					<button class="ctrl-menu-item" (click)="viewCountry(country); showViewMenu.set(false)">
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ country.flag }}</span>
+						<span>{{ country.name }}</span>
+					</button>
+				}
+			</div>
+		}
+	</div>
 
 	<button class="ctrl-btn ctrl-desktop-only" (click)="takeScreenshot()" title="Télécharger une capture">
 		<img src="camera.png" alt="" class="ctrl-icon" />
@@ -159,6 +197,11 @@
 
 		<!-- Filter bar -->
 		<div class="filter-bar">
+			@if (seasonFilter(); as season) {
+				<button class="filter-chip active" (click)="selectSeason(season)">
+					{{ season.emoji }} {{ season.name }}
+				</button>
+			}
 			@if (dateFilter() === 'custom') {
 				<input
 					type="date"

@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import {
 	latLngToCell,
 	gridPathCells,
@@ -10,6 +10,7 @@ import {
 } from 'h3-js';
 import polygonClipping from 'polygon-clipping';
 import { LoggerService } from './logger';
+import { DatabaseService } from './database';
 
 export const RESOLUTIONS = [6, 7] as const;
 export type H3Resolution = (typeof RESOLUTIONS)[number];
@@ -32,36 +33,28 @@ export function resolutionForZoom(zoom: number): H3Resolution {
 	return 7;
 }
 
-const DEPT_CELLS_STORAGE_KEY = 'georide_h3_dept_cells_v1';
+const DEPT_CELLS_STORAGE_KEY = 'h3_dept_cells';
 
 @Injectable({ providedIn: 'root' })
 export class H3Service {
 	private deptCellsCache = new Map<string, string[]>();
 	private enrichedDeptCache = new Map<string, GeoJSON.FeatureCollection>();
 	private logger = new LoggerService();
+	private db = inject(DatabaseService);
 	private deptCacheDirty = false;
 
 	constructor() {
-		this.loadDeptCellsFromStorage();
-	}
-
-	private loadDeptCellsFromStorage(): void {
-		try {
-			const raw = localStorage.getItem(DEPT_CELLS_STORAGE_KEY);
-			if (raw) {
-				const entries: [string, string[]][] = JSON.parse(raw);
-				for (const [k, v] of entries) this.deptCellsCache.set(k, v);
-				this.logger.log('H3', `loaded ${entries.length} dept cell entries from localStorage`);
-			}
-		} catch {}
+		this.db.kvGet<[string, string[]][]>(DEPT_CELLS_STORAGE_KEY).subscribe((entries) => {
+			if (!entries) return;
+			for (const [k, v] of entries) this.deptCellsCache.set(k, v);
+			this.logger.log('H3', `loaded ${entries.length} dept cell entries from IDB`);
+		});
 	}
 
 	private flushDeptCellsToStorage(): void {
 		if (!this.deptCacheDirty) return;
-		try {
-			localStorage.setItem(DEPT_CELLS_STORAGE_KEY, JSON.stringify([...this.deptCellsCache.entries()]));
-			this.deptCacheDirty = false;
-		} catch {}
+		this.deptCacheDirty = false;
+		this.db.kvSet(DEPT_CELLS_STORAGE_KEY, [...this.deptCellsCache.entries()]).subscribe();
 	}
 
 	// Invalidate enriched department cache (call when trip data changes)

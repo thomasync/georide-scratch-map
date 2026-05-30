@@ -1,4 +1,5 @@
-import { Injectable, signal, effect, isDevMode } from '@angular/core';
+import { inject, Injectable, signal, effect, isDevMode } from '@angular/core';
+import { DatabaseService } from './database';
 
 export interface MapSettings {
 	fitToVisitedMaxZoom: number;
@@ -42,7 +43,8 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
 	providedIn: 'root',
 })
 export class MapSettingsService {
-	private readonly STORAGE_KEY = 'georide_map_settings';
+	private readonly STORAGE_KEY = 'map_settings';
+	private db = inject(DatabaseService);
 
 	// Define signals for each setting
 	readonly minZoomDesk = signal(DEFAULT_MAP_SETTINGS.minZoomDesk);
@@ -67,7 +69,7 @@ export class MapSettingsService {
 	constructor() {
 		this.loadSettings();
 
-		// Auto-save to localStorage when any setting changes (only in dev mode to avoid overhead in prod)
+		// Auto-save to IDB when any setting changes (only in dev mode to avoid overhead in prod)
 		if (isDevMode()) {
 			effect(() => {
 				const settings: MapSettings = {
@@ -88,17 +90,16 @@ export class MapSettingsService {
 					deptMaskOpacityDefault: this.deptMaskOpacityDefault(),
 					deptMaskOpacityScreenshot: this.deptMaskOpacityScreenshot(),
 				};
-				localStorage.setItem(this.STORAGE_KEY, JSON.stringify(settings));
+				this.db.kvSet(this.STORAGE_KEY, settings).subscribe();
 			});
 		}
 	}
 
 	private loadSettings(): void {
-		if (!isDevMode()) return; // Don't load overrides in prod
-		try {
-			const stored = localStorage.getItem(this.STORAGE_KEY);
-			if (stored) {
-				const parsed = JSON.parse(stored) as Partial<MapSettings>;
+		if (!isDevMode()) return;
+		this.db.kvGet<Partial<MapSettings>>(this.STORAGE_KEY).subscribe((parsed) => {
+			if (!parsed) return;
+			try {
 				if (parsed.minZoomDesk !== undefined) this.minZoomDesk.set(parsed.minZoomDesk);
 				if (parsed.minZoomMob !== undefined) this.minZoomMob.set(parsed.minZoomMob);
 				if (parsed.maxZoom !== undefined) this.maxZoom.set(parsed.maxZoom);
@@ -121,10 +122,10 @@ export class MapSettingsService {
 					this.deptMaskOpacityDefault.set(parsed.deptMaskOpacityDefault);
 				if (parsed.deptMaskOpacityScreenshot !== undefined)
 					this.deptMaskOpacityScreenshot.set(parsed.deptMaskOpacityScreenshot);
+			} catch (e) {
+				console.error('Failed to load map settings', e);
 			}
-		} catch (e) {
-			console.error('Failed to load map settings', e);
-		}
+		});
 	}
 
 	updateSetting<K extends keyof MapSettings>(key: K, value: MapSettings[K]): void {

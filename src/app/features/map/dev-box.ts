@@ -1,7 +1,8 @@
 import { Component, EventEmitter, inject, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../core/services/map-settings';
+import { MapSettingsService, MapSettings } from '../../core/services/map-settings';
+import { DatabaseService } from '../../core/services/database';
 
 @Component({
 	selector: 'app-dev-box',
@@ -202,13 +203,20 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 })
 export class DevBoxComponent {
 	settings = inject(MapSettingsService);
-	isExpanded = localStorage.getItem('georide_dev_box_expanded') !== 'false';
+	private db = inject(DatabaseService);
+	isExpanded = false;
+
+	constructor() {
+		this.db.kvGet<boolean>('dev_box_expanded').subscribe((v) => {
+			if (v !== null) this.isExpanded = v;
+		});
+	}
 
 	@Output() simulateNewTrip = new EventEmitter<void>();
 
 	toggleExpand(): void {
 		this.isExpanded = !this.isExpanded;
-		localStorage.setItem('georide_dev_box_expanded', String(this.isExpanded));
+		this.db.kvSet('dev_box_expanded', this.isExpanded).subscribe();
 	}
 
 	controls: { key: keyof MapSettings; label: string; min: number; max: number; step: number }[] = [

@@ -1,74 +1,37 @@
+import { inject } from '@angular/core';
 import { HttpInterceptorFn, HttpResponse } from '@angular/common/http';
-import { of, tap } from 'rxjs';
+import { of, switchMap, tap } from 'rxjs';
+import { DatabaseService } from '../services/database';
 
 const TTL_1H = 60 * 60 * 1000;
 const TTL_7D = 7 * 24 * 60 * 60 * 1000;
-const PREFIX = 'georide_cache_';
+const PREFIX = 'cache_';
 
-const CACHED_HOSTS: { pattern: string; ttl: number }[] = [
-	{ pattern: 'api.georide.com', ttl: TTL_1H },
+const CACHED_URLS = [
+	{ pattern: '/user/trackers', ttl: TTL_1H },
+	{ pattern: '/user', ttl: TTL_1H },
 	{ pattern: 'router.project-osrm.org', ttl: TTL_7D },
-];
-
-let pruned = false;
-
-// Remove expired cache entries whose URLs changed (e.g. daily `to` param drift)
-function pruneExpiredCache(): void {
-	if (pruned) return;
-	pruned = true;
-	const toRemove: string[] = [];
-	for (let i = 0; i < localStorage.length; i++) {
-		const key = localStorage.key(i);
-		if (!key?.startsWith(PREFIX)) continue;
-		try {
-			const { expiresAt } = JSON.parse(localStorage.getItem(key)!);
-			if (Date.now() >= expiresAt) toRemove.push(key);
-		} catch {
-			toRemove.push(key);
-		}
-	}
-	toRemove.forEach((k) => localStorage.removeItem(k));
-}
+] as const;
 
 export const cacheInterceptor: HttpInterceptorFn = (req, next) => {
-	pruneExpiredCache();
-	const host = CACHED_HOSTS.find((h) => req.url.includes(h.pattern));
-	if (req.method !== 'GET' || !host) {
-		return next(req);
-	}
+	const db = inject(DatabaseService);
+	const rule = CACHED_URLS.find((r) => req.url.includes(r.pattern));
+	if (req.method !== 'GET' || !rule) return next(req);
 
 	const key = PREFIX + req.urlWithParams;
-	const raw = localStorage.getItem(key);
 
-	if (raw) {
-		try {
-			const { body, expiresAt } = JSON.parse(raw);
-			if (Date.now() < expiresAt) {
-				return of(new HttpResponse({ status: 200, body }));
+	return db.kvGet<unknown>(key).pipe(
+		switchMap((cached) => {
+			if (cached !== null) {
+				return of(new HttpResponse({ status: 200, body: cached }));
 			}
-		} catch {}
-		localStorage.removeItem(key);
-	}
-
-	return next(req).pipe(
-		tap((event) => {
-			if (event instanceof HttpResponse && event.status === 200) {
-				const value = JSON.stringify({ body: event.body, expiresAt: Date.now() + host.ttl });
-				try {
-					localStorage.setItem(key, value);
-				} catch {
-					// Quota exceeded: evict all cache entries and retry once
-					const toRemove: string[] = [];
-					for (let i = 0; i < localStorage.length; i++) {
-						const k = localStorage.key(i);
-						if (k?.startsWith(PREFIX)) toRemove.push(k);
+			return next(req).pipe(
+				tap((event) => {
+					if (event instanceof HttpResponse && event.status === 200) {
+						db.kvSet(key, event.body, rule.ttl).subscribe();
 					}
-					toRemove.forEach((k) => localStorage.removeItem(k));
-					try {
-						localStorage.setItem(key, value);
-					} catch {}
-				}
-			}
+				}),
+			);
 		}),
 	);
 };
