@@ -59,8 +59,8 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 		`
 			.dev-box {
 				position: fixed;
-				top: 16px;
-				right: 16px;
+				top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
+				right: max(1rem, calc(env(safe-area-inset-right) + 0.5rem));
 				z-index: 9999;
 				background-color: white;
 				color: #333;
@@ -73,6 +73,11 @@ import { MapSettingsService, MapSettings, DEFAULT_MAP_SETTINGS } from '../../cor
 				max-height: 80vh;
 				overflow-y: auto;
 				transition: width 0.2s;
+			}
+			@media (max-width: 767px) {
+				.dev-box {
+					top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+				}
 			}
 			.dev-box.collapsed {
 				width: auto;

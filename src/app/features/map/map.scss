@@ -112,6 +112,10 @@
 	z-index: 30;
 	display: flex;
 	gap: 0.4rem;
+
+	@media (max-width: 767px) {
+		top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+	}
 }
 
 .ctrl-btn {
@@ -495,6 +499,10 @@
 	align-items: center;
 	gap: 0.6rem;
 	white-space: nowrap;
+
+	@media (max-width: 767px) {
+		top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+	}
 }
 
 .banner-exit-btn {
