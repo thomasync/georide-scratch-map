@@ -1348,13 +1348,13 @@ export class Map {
 						0,
 						0,
 						1,
-						0.15,
+						0.1,
 						5,
-						0.45,
+						0.3,
 						15,
-						0.7,
+						0.5,
 						30,
-						0.9,
+						0.65,
 					],
 				},
 				layout: { visibility: 'none' },
@@ -2812,11 +2812,9 @@ export class Map {
 					const speedKmh = p1.speed * 1.852;
 					if (speedKmh < 50) continue;
 
-					// Virage seul
 					const angle = ad(p1.angle, p2.angle);
 					if (angle >= SINGLE_MIN) addCount(p1.latitude, p1.longitude);
 
-					// Succession — changement net de cap sur la fenêtre
 					if (i + WIN < pos.length) {
 						let valid = true;
 						for (let j = i; j < i + WIN; j++) {
