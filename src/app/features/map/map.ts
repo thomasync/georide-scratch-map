@@ -785,16 +785,14 @@ export class Map {
 						trackers.map((t) => this.api.getTrips(t.trackerId, new Date(t.activationDate), to)),
 					).pipe(
 						rxMap((tripArrays) =>
-							tripArrays
-								.flat()
-								.flatMap((t) =>
-									(t as MergedTrip).tripsMerged?.length
-										? (t as MergedTrip).tripsMerged.map((sub) => ({
-												...sub,
-												isFavorite: t.isFavorite,
-											}))
-										: [t],
-								),
+							tripArrays.flat().flatMap((t) =>
+								(t as MergedTrip).tripsMerged?.length
+									? (t as MergedTrip).tripsMerged.map((sub) => ({
+											...sub,
+											isFavorite: t.isFavorite,
+										}))
+									: [t],
+							),
 						),
 					);
 				}),
