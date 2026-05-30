@@ -66,13 +66,14 @@
 	</button>
 
 	<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
-		<button class="ctrl-btn" (click)="resetView()" title="Vue complète">
+		<button class="ctrl-btn" (click)="onViewButtonClick()" title="Vue complète">
 			<img src="world_map.png" alt="" class="ctrl-icon" />
 		</button>
 		@if (showViewMenu()) {
-			<div class="ctrl-menu">
+			<div class="ctrl-menu-backdrop" (click)="showViewMenu.set(false)"></div>
+			<div class="ctrl-menu" (click)="$event.stopPropagation()">
 				<button class="ctrl-menu-item" (click)="viewMyTrips(); showViewMenu.set(false)">
-					<img src="world_map.png" alt="" class="ctrl-menu-icon" />
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🗺️</span>
 					<span>Mes trajets</span>
 				</button>
 

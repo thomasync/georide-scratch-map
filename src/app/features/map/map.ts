@@ -478,6 +478,14 @@ export class Map {
 		}
 	}
 
+	onViewButtonClick(): void {
+		if (this.isMobile) {
+			this.showViewMenu.set(!this.showViewMenu());
+		} else {
+			this.resetView();
+		}
+	}
+
 	openViewMenu(): void {
 		if (this.viewMenuHideTimer) {
 			clearTimeout(this.viewMenuHideTimer);
@@ -498,18 +506,19 @@ export class Map {
 	viewFrance(): void {
 		if (!this.map) return;
 		const targetZoom = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
-		this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
+		this.map.easeTo({ center: [2.3, 46.2], zoom: targetZoom, duration: 800 });
 	}
 
 	viewCountry(country: NeighboringCountry): void {
 		if (!this.map) return;
-		this.map.fitBounds(
+		const camera = this.map.cameraForBounds(
 			[
 				[country.minLon, country.minLat],
 				[country.maxLon, country.maxLat],
 			],
-			{ padding: 40, speed: 1.2 },
+			{ padding: 40 },
 		);
+		if (camera) this.map.easeTo({ ...camera, duration: 800 });
 	}
 
 	goToLogin(): void {

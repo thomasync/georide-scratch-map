@@ -162,7 +162,7 @@
 	gap: 0.4rem;
 
 	@media (max-width: 767px) {
-		top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+		top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
 	}
 }
 
@@ -173,6 +173,7 @@
 	border-radius: 50%;
 	width: 2.75rem;
 	height: 2.75rem;
+	touch-action: manipulation;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -549,7 +550,7 @@
 	white-space: nowrap;
 
 	@media (max-width: 767px) {
-		top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+		top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
 	}
 }
 

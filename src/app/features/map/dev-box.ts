@@ -77,7 +77,7 @@ import { DatabaseService } from '../../core/services/database';
 			}
 			@media (max-width: 767px) {
 				.dev-box {
-					top: max(3.5rem, calc(env(safe-area-inset-top) + 0.5rem));
+					top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem));
 				}
 			}
 			.dev-box.collapsed {
