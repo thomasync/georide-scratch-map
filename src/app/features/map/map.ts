@@ -210,6 +210,7 @@ export class Map {
 	elevationBatchDone = signal(0);
 	elevationBatchTotal = signal(0);
 	hexHoverAlt = signal(null as number | null);
+	hexHoverTurns = signal(null as number | null);
 
 	private tripAltProfiles: Record<string, AltProfile> = {};
 	private colsCellCache: Partial<Record<H3Resolution, Record<string, number>>> = {};
@@ -509,6 +510,13 @@ export class Map {
 			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 		} else {
 			this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
+		}
+	}
+
+	onWorldMapClick(): void {
+		if (!this.isMobile) {
+			this.viewMyTrips();
+			this.showViewMenu.set(false);
 		}
 	}
 
@@ -928,8 +936,15 @@ export class Map {
 							);
 						}),
 						switchMap(({ localTrips, newTrips }) => {
+							const positionsByIndexId: Record<string, GeoRidePosition[]> = {};
+							for (const t of localTrips) {
+								if (t.positions?.length) positionsByIndexId[t.indexId] = t.positions;
+							}
 							const newIndexIds = new Set(newTrips.map((t) => t.indexId));
-							const merged = [...localTrips.filter((t) => !newIndexIds.has(t.indexId)), ...newTrips];
+							const mergedNew = newTrips.map((t) =>
+								positionsByIndexId[t.indexId] ? { ...t, positions: positionsByIndexId[t.indexId] } : t,
+							);
+							const merged = [...localTrips.filter((t) => !newIndexIds.has(t.indexId)), ...mergedNew];
 							return forkJoin([
 								this.db.upsertTrips(newTrips),
 								this.db.kvSet('lastSyncAt', Date.now(), 60 * 60 * 1000),
@@ -1285,11 +1300,11 @@ export class Map {
 						['get', 'count'],
 						0,
 						'#f48fb1',
-						30,
+						5,
 						'#e91e63',
-						60,
+						15,
 						'#880e4f',
-						90,
+						30,
 						'#4a0018',
 					],
 					'fill-opacity': [
@@ -1298,18 +1313,23 @@ export class Map {
 						['get', 'count'],
 						0,
 						0,
-						10,
+						1,
 						0.15,
-						30,
+						5,
 						0.45,
-						60,
+						15,
 						0.7,
-						90,
+						30,
 						0.9,
 					],
 				},
 				layout: { visibility: 'none' },
 			});
+			this.map.on('mousemove', 'turns-fill', (e) => {
+				const count = e.features?.[0]?.properties?.['count'] as number | undefined;
+				this.hexHoverTurns.set(count !== undefined ? Math.round(count) : null);
+			});
+			this.map.on('mouseleave', 'turns-fill', () => this.hexHoverTurns.set(null));
 			if (this.turnsMode()) this.showTurns();
 		}
 
@@ -1625,7 +1645,6 @@ export class Map {
 
 			const hexVisible: 'visible' | 'none' = mode === 'hex' || mode === 'polyline' ? 'visible' : 'none';
 			const deptVisible: 'visible' | 'none' = mode === 'dept' ? 'visible' : 'none';
-			const polylineVisible: 'visible' | 'none' = mode === 'polyline' ? 'visible' : 'none';
 
 			if (mode === 'dept') this.clearTripLine(true);
 
@@ -2042,7 +2061,7 @@ export class Map {
 				item.addEventListener('click', () => {
 					this.keepTripLineOnClose = true;
 					this.showTripLine(sorted[idx]);
-					this.fitToVisited([sorted[idx].coords], 14);
+					if ((this.map?.getZoom() ?? 0) < 14) this.fitToVisited([sorted[idx].coords], 14);
 					this.popup?.remove();
 					this.popup = null;
 				});
@@ -2173,7 +2192,7 @@ export class Map {
 				item.addEventListener('click', () => {
 					this.keepTripLineOnClose = true;
 					this.showTripLine(trips[idx]);
-					this.fitToVisited([trips[idx].coords], 14);
+					if ((this.map?.getZoom() ?? 0) < 14) this.fitToVisited([trips[idx].coords], 14);
 					this.stopPopup?.remove();
 					this.stopPopup = null;
 				});
@@ -2371,10 +2390,6 @@ export class Map {
 			this.hideCols();
 			return;
 		}
-		if (this.turnsMode()) {
-			this.turnsMode.set(false);
-			this.hideTurns();
-		}
 		if (this.speedMode()) {
 			this.speedMode.set(false);
 			this.hideSpeed();
@@ -2382,7 +2397,7 @@ export class Map {
 		if (Object.keys(this.tripAltProfiles).length > 0) {
 			this.colsMode.set(true);
 			this.showCols();
-			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			return;
 		}
 
@@ -2403,7 +2418,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.colsMode.set(true);
 				this.showCols();
-				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Elevation', 'sync failed', err);
@@ -2565,6 +2580,10 @@ export class Map {
 			this.h3.cellsToHeatmapGeoJSON(this.colsCellCache[res]!),
 		);
 		this.map.setLayoutProperty('cols-fill', 'visibility', 'visible');
+		if (this.turnsMode() && this.map.getLayer('turns-fill')) {
+			this.map.setLayoutProperty('turns-fill', 'visibility', 'none');
+		}
+		this.refreshPolylineSegments();
 	}
 
 	private segmentColorExpression(): maplibregl.DataDrivenPropertyValueSpecification<string> {
@@ -2622,13 +2641,20 @@ export class Map {
 		const spdP75 = p95(raw.map((r) => r.speed));
 		const turnP75 = p95(raw.map((r) => r.turn));
 
-		const features: GeoJSON.Feature[] = raw.map((r) => ({
-			type: 'Feature',
-			geometry: { type: 'LineString', coordinates: r.coords },
+		const tagged = raw.map((r) => ({
+			coords: r.coords,
+			is_alt_peak: r.alt >= altP75 && altP75 > 0 ? 1 : 0,
+			is_speed_peak: r.speed >= spdP75 && spdP75 > 0 ? 1 : 0,
+			is_turn_peak: r.turn > 0 && r.turn >= turnP75 && turnP75 > 0 ? 1 : 0,
+		}));
+
+		const features: GeoJSON.Feature[] = tagged.map((seg) => ({
+			type: 'Feature' as const,
+			geometry: { type: 'LineString' as const, coordinates: seg.coords },
 			properties: {
-				is_alt_peak: r.alt >= altP75 && altP75 > 0 ? 1 : 0,
-				is_speed_peak: r.speed >= spdP75 && spdP75 > 0 ? 1 : 0,
-				is_turn_peak: r.turn > 0 && r.turn >= turnP75 && turnP75 > 0 ? 1 : 0,
+				is_alt_peak: seg.is_alt_peak,
+				is_speed_peak: seg.is_speed_peak,
+				is_turn_peak: seg.is_turn_peak,
 			},
 		}));
 
@@ -2637,11 +2663,32 @@ export class Map {
 		return fc;
 	}
 
+	private refreshPolylineSegments(): void {
+		if (this.currentMode !== 'polyline' || !this.map?.getLayer('all-trips-segments-layer')) return;
+		const analysisMode = this.colsMode() || this.turnsMode() || this.speedMode();
+		if (analysisMode) {
+			(this.map.getSource('all-trips-segments') as maplibregl.GeoJSONSource).setData(
+				this.buildAllTripsSegments(),
+			);
+			this.map.setPaintProperty('all-trips-segments-layer', 'line-color', this.segmentColorExpression());
+			this.map.setPaintProperty('all-trips-segments-layer', 'line-opacity', this.segmentOpacityExpression());
+			this.map.setLayoutProperty('all-trips-segments-layer', 'visibility', 'visible');
+			this.map.setLayoutProperty('all-trips-line', 'visibility', 'visible');
+		} else {
+			this.map.setLayoutProperty('all-trips-segments-layer', 'visibility', 'none');
+			this.map.setLayoutProperty('all-trips-line', 'visibility', 'visible');
+		}
+	}
+
 	private hideCols(): void {
 		this.hexHoverAlt.set(null);
 		if (this.map?.getLayer('cols-fill')) {
 			this.map.setLayoutProperty('cols-fill', 'visibility', 'none');
 		}
+		if (this.turnsMode() && this.map?.getLayer('turns-fill')) {
+			this.map.setLayoutProperty('turns-fill', 'visibility', 'visible');
+		}
+		this.refreshPolylineSegments();
 	}
 
 	toggleTurnsMode(): void {
@@ -2649,10 +2696,6 @@ export class Map {
 			this.turnsMode.set(false);
 			this.hideTurns();
 			return;
-		}
-		if (this.colsMode()) {
-			this.colsMode.set(false);
-			this.hideCols();
 		}
 		if (this.speedMode()) {
 			this.speedMode.set(false);
@@ -2679,7 +2722,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.turnsMode.set(true);
 				this.showTurns();
-				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Turns', 'sync failed', err);
@@ -2695,41 +2738,72 @@ export class Map {
 		if (!data || !this.map?.getSource('turns-heatmap')) return;
 
 		if (!this.turnsCellCache[res]) {
-			const cellTurns: Record<string, number[]> = {};
+			const SINGLE_MIN = 20;
+			const WIN = 6;
+			const WIN_MIN = 45;
+			const ad = (a: number, b: number) => {
+				const d = Math.abs(b - a);
+				return d > 180 ? 360 - d : d;
+			};
+			const cellScores: Record<string, number> = {};
+			const addCount = (lat: number, lon: number) => {
+				const cell = latLngToCell(lat, lon, res);
+				if (data.counts[cell] !== undefined) cellScores[cell] = (cellScores[cell] ?? 0) + 1;
+			};
+
 			for (const trip of this.allTripsWithCoords) {
 				if (!trip.positions?.length) continue;
 				const pos = trip.positions;
-				for (let i = 0; i < pos.length - 1; i++) {
+
+				for (let i = 1; i < pos.length - 1; i++) {
+					const p0 = pos[i - 1];
 					const p1 = pos[i];
 					const p2 = pos[i + 1];
-					if (p1.fixtime === p2.fixtime) continue;
-					if ((p1.speed + p2.speed) / 2 < 5) continue;
-					const delta = Math.abs(p2.angle - p1.angle);
-					const turn = delta > 180 ? 360 - delta : delta;
-					if (turn < 2) continue;
-					const cell = latLngToCell((p1.latitude + p2.latitude) / 2, (p1.longitude + p2.longitude) / 2, res);
-					if (data.counts[cell] !== undefined) (cellTurns[cell] ??= []).push(turn);
+					if (p0.fixtime === p1.fixtime || p1.fixtime === p2.fixtime) continue;
+					const speedKmh = p1.speed * 1.852;
+					if (speedKmh < 50) continue;
+
+					// Virage seul
+					const angle = ad(p1.angle, p2.angle);
+					if (angle >= SINGLE_MIN) addCount(p1.latitude, p1.longitude);
+
+					// Succession — changement net de cap sur la fenêtre
+					if (i + WIN < pos.length) {
+						let valid = true;
+						for (let j = i; j < i + WIN; j++) {
+							if (pos[j].speed * 1.852 < 50) {
+								valid = false;
+								break;
+							}
+						}
+						const netAngle = ad(pos[i].angle, pos[i + WIN].angle);
+						if (valid && netAngle >= WIN_MIN) {
+							const mid = pos[i + Math.floor(WIN / 2)];
+							addCount(mid.latitude, mid.longitude);
+						}
+					}
 				}
 			}
-			const visitedCells: Record<string, number> = {};
-			for (const [cell, turns] of Object.entries(cellTurns)) {
-				const sorted = [...turns].sort((a, b) => a - b);
-				visitedCells[cell] = sorted[Math.floor(sorted.length * 0.9)];
-			}
-			this.turnsCellCache[res] = visitedCells;
-			this.logger.log('Turns', `res=${res} — ${Object.keys(visitedCells).length} cells`);
+			this.turnsCellCache[res] = cellScores;
+			this.logger.log('Turns', `res=${res} — ${Object.keys(cellScores).length} cells`);
 		}
 
 		(this.map.getSource('turns-heatmap') as maplibregl.GeoJSONSource).setData(
 			this.h3.cellsToHeatmapGeoJSON(this.turnsCellCache[res]!),
 		);
-		this.map.setLayoutProperty('turns-fill', 'visibility', 'visible');
+		// En mode combiné cols+virages, les hexagones cols suffisent — virages = polyline seulement
+		if (!this.colsMode()) {
+			this.map.setLayoutProperty('turns-fill', 'visibility', 'visible');
+		}
+		this.refreshPolylineSegments();
 	}
 
 	private hideTurns(): void {
+		this.hexHoverTurns.set(null);
 		if (this.map?.getLayer('turns-fill')) {
 			this.map.setLayoutProperty('turns-fill', 'visibility', 'none');
 		}
+		this.refreshPolylineSegments();
 	}
 
 	toggleStopsMode(): void {
@@ -2749,7 +2823,7 @@ export class Map {
 		}
 		this.stopsMode.set(true);
 		this.showStops();
-		this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+		if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 	}
 
 	private showStops(): void {
@@ -2802,7 +2876,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.speedMode.set(true);
 				this.showSpeed();
-				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Speed', 'sync failed', err);
@@ -2849,6 +2923,7 @@ export class Map {
 			this.h3.cellsToHeatmapGeoJSON(this.speedCellCache[res]!),
 		);
 		this.map.setLayoutProperty('speed-fill', 'visibility', 'visible');
+		this.refreshPolylineSegments();
 	}
 
 	private hideSpeed(): void {
@@ -2857,6 +2932,7 @@ export class Map {
 		if (this.map?.getLayer('speed-fill')) {
 			this.map.setLayoutProperty('speed-fill', 'visibility', 'none');
 		}
+		this.refreshPolylineSegments();
 	}
 
 	private computeStopPoints(): GeoJSON.FeatureCollection {
@@ -3038,24 +3114,80 @@ export class Map {
 		this.logger.log('Trip', trip.indexId, trip);
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		this.selectedTrip = trip;
-		const coords = trip.positions?.length
-			? trip.positions.map((p) => [p.longitude, p.latitude] as [number, number])
-			: trip.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
-		this.selectedTripCoords = coords;
-		this.currentMode = null;
-		this.updateView();
-		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
-			type: 'FeatureCollection',
-			features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }],
-		});
-		if (trip.positions?.length && (this.colsMode() || this.turnsMode() || this.speedMode())) {
-			this.showTripSegments(trip);
+
+		const render = (positions: GeoRidePosition[] | null) => {
+			if (positions?.length) trip.positions = positions;
+			const coords = trip.positions?.length
+				? trip.positions.map((p) => [p.longitude, p.latitude] as [number, number])
+				: trip.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
+			this.selectedTripCoords = coords;
+			this.currentMode = null;
+			this.updateView();
+			if (!this.map?.getSource('trip-line')) return;
+			(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
+				type: 'FeatureCollection',
+				features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }],
+			});
+			if (trip.positions?.length && (this.colsMode() || this.turnsMode() || this.speedMode())) {
+				this.showTripSegments(trip);
+			}
+		};
+
+		if (trip.positions?.length) {
+			render(null);
+		} else {
+			this.db.getTripPositions(trip.indexId).subscribe((positions) => render(positions));
 		}
 	}
 
 	private showTripSegments(trip: TripWithCoords): void {
 		if (!this.map?.getSource('trip-line-segments')) return;
-		(this.map.getSource('trip-line-segments') as maplibregl.GeoJSONSource).setData(this.buildTripSegments(trip));
+		const prop = this.turnsMode() ? 'is_turn_peak' : this.speedMode() ? 'is_speed_peak' : 'is_alt_peak';
+		const raw = this.buildTripSegments(trip).features;
+		const GAP_TOLERANCE = 2;
+		const merged: GeoJSON.Feature[] = [];
+		let coords: [number, number][] = [];
+		let gapBuffer: [number, number][][] = [];
+
+		const flush = () => {
+			if (coords.length >= 2)
+				merged.push({
+					type: 'Feature',
+					geometry: { type: 'LineString', coordinates: coords },
+					properties: { [prop]: 1 },
+				});
+			else
+				for (const g of gapBuffer)
+					merged.push({
+						type: 'Feature',
+						geometry: { type: 'LineString', coordinates: g },
+						properties: { [prop]: 0 },
+					});
+			coords = [];
+			gapBuffer = [];
+		};
+		for (const f of raw) {
+			const line = (f.geometry as GeoJSON.LineString).coordinates as [number, number][];
+			if (f.properties?.[prop] === 1) {
+				if (coords.length === 0) coords.push(line[0]);
+				// absorb buffered gap segments into the peak
+				for (const g of gapBuffer) coords.push(...g.slice(1));
+				gapBuffer = [];
+				coords.push(...line.slice(1));
+			} else {
+				if (coords.length > 0 && gapBuffer.length < GAP_TOLERANCE) {
+					gapBuffer.push(line);
+				} else {
+					flush();
+					merged.push(f);
+				}
+			}
+		}
+		flush();
+		(this.map.getSource('trip-line-segments') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features: merged,
+		});
 		this.map.setPaintProperty('trip-line-segments-layer', 'line-color', this.segmentColorExpression());
 		this.map.setPaintProperty('trip-line-segments-layer', 'line-opacity', this.segmentOpacityExpression());
 		this.map.setPaintProperty('trip-line-segments-layer', 'line-width', 4);

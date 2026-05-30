@@ -66,7 +66,7 @@
 	</button>
 
 	<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
-		<button class="ctrl-btn" title="Vue complète">
+		<button class="ctrl-btn" title="Vue complète" (click)="onWorldMapClick()">
 			<img src="world_map.png" alt="" class="ctrl-icon" />
 		</button>
 		@if (showViewMenu()) {
@@ -241,6 +241,13 @@
 					<div class="stat">
 						<span class="stat-value">~{{ hexHoverAlt() }}</span>
 						<span class="stat-label">m alt.</span>
+					</div>
+				}
+				@if (turnsMode() && hexHoverTurns() !== null) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ hexHoverTurns() }}</span>
+						<span class="stat-label">virage{{ hexHoverTurns()! > 1 ? 's' : '' }}</span>
 					</div>
 				}
 				@if (speedMode() && hexHoverSpeedAvg() !== null) {

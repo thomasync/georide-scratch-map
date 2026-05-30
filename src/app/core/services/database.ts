@@ -126,6 +126,23 @@ export class DatabaseService {
 
 	// ── Trips ────────────────────────────────────────────────────────────────
 
+	getTripPositions(indexId: string): Observable<GeoRidePosition[] | null> {
+		return this.db$.pipe(
+			switchMap(
+				(db) =>
+					new Observable<GeoRidePosition[] | null>((s) => {
+						const req = db.transaction(this.TRIPS, 'readonly').objectStore(this.TRIPS).get(indexId);
+						req.onsuccess = () => {
+							s.next((req.result as StoredTrip | undefined)?.positions ?? null);
+							s.complete();
+						};
+						req.onerror = () => s.error(req.error);
+					}),
+			),
+			catchError(() => of(null)),
+		);
+	}
+
 	getAllTrips(): Observable<StoredTrip[]> {
 		return this.db$.pipe(
 			switchMap(
