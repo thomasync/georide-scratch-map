@@ -12,8 +12,8 @@ import {
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
-import { catchError, forkJoin, map as rxMap, of, switchMap } from 'rxjs';
-import { MergedTrip, Trip } from '../../core/models/trip';
+import { Observable, catchError, concat, forkJoin, map as rxMap, of, reduce, switchMap, tap } from 'rxjs';
+import { MergedTrip } from '../../core/models/trip';
 import { GeorideApiService } from '../../core/services/georide-api';
 import { H3Data, H3Resolution, H3Service, resolutionForZoom } from '../../core/services/h3';
 import { LoggerService } from '../../core/services/logger';
@@ -24,12 +24,20 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DatabaseService, StoredTrip } from '../../core/services/database';
+import { latLngToCell } from 'h3-js';
+import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
 import { StatsModalComponent, StatsModalData } from './stats-modal';
 
 type Mode = 'hex' | 'dept' | 'polyline';
-type TripWithCoords = Trip & { coords: [number, number][] };
+type TripWithCoords = StoredTrip & { coords: [number, number][] };
+
+interface AltProfile {
+	minAlt: number;
+	maxAlt: number;
+	gain: number;
+}
 
 interface NewCellsRecapData {
 	newHexCount: number;
@@ -189,6 +197,14 @@ export class Map {
 	newCellsRecapData = signal<NewCellsRecapData | null>(null);
 	isNewTripsPolylineMode = signal(false);
 	private recapDismissed = signal(false);
+
+	colsMode = signal(false);
+	elevationLoading = signal(false);
+	elevationBatchDone = signal(0);
+	elevationBatchTotal = signal(0);
+	hexHoverAlt = signal(null as number | null);
+	private tripAltProfiles: Record<string, AltProfile> = {};
+	private colsCellCache: Partial<Record<H3Resolution, Record<string, number>>> = {};
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
@@ -1190,6 +1206,58 @@ export class Map {
 			this.updateNewCellsLayer();
 		}
 
+		// --- Cols altitude overlay ---
+		if (!this.map.getSource('cols-heatmap')) {
+			this.map.addSource('cols-heatmap', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'cols-fill',
+				type: 'fill',
+				source: 'cols-heatmap',
+				paint: {
+					'fill-color': [
+						'interpolate',
+						['linear'],
+						['get', 'count'],
+						0,
+						'#c5cae9',
+						600,
+						'#5c6bc0',
+						1400,
+						'#283593',
+						2500,
+						'#7b1fa2',
+					],
+					'fill-opacity': [
+						'interpolate',
+						['linear'],
+						['get', 'count'],
+						0,
+						0,
+						150,
+						0.15,
+						600,
+						0.5,
+						1400,
+						0.75,
+						2500,
+						0.92,
+					],
+				},
+				layout: { visibility: 'none' },
+			});
+			this.map.on('mousemove', 'cols-fill', (e) => {
+				const alt = e.features?.[0]?.properties?.['count'] as number | undefined;
+				this.hexHoverAlt.set(alt !== undefined ? Math.round(alt) : null);
+			});
+			this.map.on('mouseleave', 'cols-fill', () => {
+				this.hexHoverAlt.set(null);
+			});
+			if (this.colsMode()) this.showCols();
+		}
+
 		// --- All trips polylines (polyline mode) ---
 		if (!this.map.getSource('all-trips')) {
 			this.map.addSource('all-trips', { type: 'geojson', data: this.buildAllTripsGeoJSON() });
@@ -1379,6 +1447,14 @@ export class Map {
 				this.h3.cellsToHeatmapGeoJSON(displayCounts),
 			);
 			this.updateNewCellsLayer();
+		}
+
+		if (this.colsMode() && this.map.getLayer('cols-fill')) {
+			if (mode === 'dept') {
+				this.map.setLayoutProperty('cols-fill', 'visibility', 'none');
+			} else {
+				this.showCols();
+			}
 		}
 	}
 
@@ -1581,6 +1657,16 @@ export class Map {
 		const tripIndices = [...new Set(data.cellToIndices[cell] ?? [])];
 		const trips = tripIndices.map((i) => this.tripsWithCoords[i]).filter(Boolean);
 		const sorted = [...trips].sort((a, b) => b.startTime.localeCompare(a.startTime));
+		this.logger.log(
+			'Hex',
+			cell,
+			sorted.map((t) => ({
+				indexId: t.indexId,
+				startTime: t.startTime,
+				distance: t.distance,
+				positions: t.positions?.length ?? 0,
+			})),
+		);
 		const center = this.h3.getCellCenter(cell);
 
 		if (!this.isMobile) {
@@ -1757,6 +1843,199 @@ export class Map {
 		return km.toLocaleString('fr-FR');
 	}
 
+	toggleColsMode(): void {
+		if (this.colsMode()) {
+			this.colsMode.set(false);
+			this.hideCols();
+			return;
+		}
+		if (Object.keys(this.tripAltProfiles).length > 0) {
+			this.colsMode.set(true);
+			this.showCols();
+			return;
+		}
+
+		for (const res of [6, 7] as H3Resolution[]) {
+			if (!this.cellsByResolution[res]) {
+				const tripData = this.tripsWithCoords.map((t) => ({
+					coords: t.coords,
+					date: t.startTime.substring(0, 10),
+				}));
+				this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
+			}
+		}
+
+		this.elevationLoading.set(true);
+		this.syncTripAltitudes().subscribe({
+			next: (profiles) => {
+				this.tripAltProfiles = profiles;
+				this.elevationLoading.set(false);
+				this.colsMode.set(true);
+				this.showCols();
+			},
+			error: (err) => {
+				this.logger.error('Elevation', 'sync failed', err);
+				this.elevationLoading.set(false);
+			},
+		});
+	}
+
+	private syncTripAltitudes(): Observable<Record<string, AltProfile>> {
+		// Trips qui ont déjà leurs positions chargées depuis IDB
+		const alreadySynced: Record<string, AltProfile> = {};
+		for (const trip of this.allTripsWithCoords) {
+			if (!trip.positions?.length) continue;
+			const profile = this.computeAltProfile(trip.positions);
+			if (profile) alreadySynced[`${trip.trackerId}_${trip.startTime}`] = profile;
+		}
+
+		const unsynced = this.allTripsWithCoords.filter((t) => !t.positions?.length);
+
+		if (!unsynced.length) {
+			this.logger.log('Elevation', `cache hit — ${Object.keys(alreadySynced).length} trips with positions`);
+			return of(alreadySynced);
+		}
+
+		const from = unsynced.reduce((min, t) => (t.startTime < min ? t.startTime : min), unsynced[0].startTime);
+		const to = unsynced.reduce((max, t) => (t.endTime > max ? t.endTime : max), unsynced[0].endTime);
+
+		return this.fetchPositionsInChunks(from, to).pipe(
+			switchMap((positions) => {
+				const positionsByTrip = this.matchPositionsToTrips(positions, unsynced);
+
+				// Met à jour les positions en mémoire et invalide le cache
+				for (const trip of unsynced) {
+					const key = `${trip.trackerId}_${trip.startTime}`;
+					if (positionsByTrip[key]) trip.positions = positionsByTrip[key];
+				}
+				this.colsCellCache = {};
+
+				// Persiste dans IDB
+				const items = Object.entries(positionsByTrip).map(([indexId, pos]) => ({ indexId, positions: pos }));
+				return this.db.upsertTripPositions(items).pipe(
+					rxMap(() => {
+						const newProfiles: Record<string, AltProfile> = {};
+						for (const [key, pos] of Object.entries(positionsByTrip)) {
+							const profile = this.computeAltProfile(pos);
+							if (profile) newProfiles[key] = profile;
+						}
+						return { ...alreadySynced, ...newProfiles };
+					}),
+				);
+			}),
+		);
+	}
+
+	private fetchPositionsInChunks(from: string, to: string): Observable<GeoRidePosition[]> {
+		const CHUNK_DAYS = 60;
+		const toDate = new Date(to);
+
+		return this.api.getTrackers().pipe(
+			switchMap((trackers) => {
+				const requests = trackers.flatMap((tracker) => {
+					const chunks: { from: string; to: string }[] = [];
+					let cursor = new Date(from);
+					while (cursor < toDate) {
+						const end = new Date(Math.min(cursor.getTime() + CHUNK_DAYS * 86400000, toDate.getTime()));
+						chunks.push({ from: cursor.toISOString(), to: end.toISOString() });
+						cursor = new Date(end.getTime() + 1);
+					}
+					return chunks.map((chunk) =>
+						this.api
+							.getPositions(tracker.trackerId, chunk.from, chunk.to)
+							.pipe(tap(() => this.elevationBatchDone.update((n) => n + 1))),
+					);
+				});
+				this.elevationBatchDone.set(0);
+				this.elevationBatchTotal.set(requests.length);
+				return concat(...requests).pipe(
+					reduce<GeoRidePosition[], GeoRidePosition[]>((acc, batch) => acc.concat(batch), []),
+				);
+			}),
+		);
+	}
+
+	private matchPositionsToTrips(
+		positions: GeoRidePosition[],
+		trips: TripWithCoords[],
+	): Record<string, GeoRidePosition[]> {
+		const sorted = [...trips].sort((a, b) => a.startTime.localeCompare(b.startTime));
+		const byTrip: Record<string, GeoRidePosition[]> = {};
+
+		let lastFixtime = '';
+		for (const pos of positions) {
+			if (pos.fixtime === lastFixtime) continue; // dédoublonne
+			lastFixtime = pos.fixtime;
+			let lo = 0,
+				hi = sorted.length - 1,
+				found = -1;
+			while (lo <= hi) {
+				const mid = (lo + hi) >> 1;
+				if (sorted[mid].startTime <= pos.fixtime) {
+					found = mid;
+					lo = mid + 1;
+				} else hi = mid - 1;
+			}
+			if (found < 0 || sorted[found].endTime < pos.fixtime) continue;
+			const key = `${sorted[found].trackerId}_${sorted[found].startTime}`;
+			(byTrip[key] ??= []).push(pos);
+		}
+
+		this.logger.log('Elevation', `matched ${Object.keys(byTrip).length} trips`);
+		return byTrip;
+	}
+
+	private computeAltProfile(positions: GeoRidePosition[]): AltProfile | null {
+		const alts = positions.map((p) => p.altitude).filter((a) => a != null && a > 0);
+		if (!alts.length) return null;
+		let gain = 0;
+		for (let i = 1; i < alts.length; i++) {
+			const diff = alts[i] - alts[i - 1];
+			if (diff > 0) gain += diff;
+		}
+		return { minAlt: Math.min(...alts), maxAlt: Math.max(...alts), gain: Math.round(gain) };
+	}
+
+	private showCols(): void {
+		if (this.currentMode === 'dept') return;
+		const res = this.currentResolution ?? (this.mapSettings.deptResolution() as H3Resolution);
+		const data = this.cellsByResolution[res];
+		if (!data || !this.map?.getSource('cols-heatmap')) return;
+
+		if (!this.colsCellCache[res]) {
+			const cellAlts: Record<string, number[]> = {};
+			for (const trip of this.allTripsWithCoords) {
+				if (!trip.positions?.length) continue;
+				for (const pos of trip.positions) {
+					if (!pos.altitude) continue;
+					const cell = latLngToCell(pos.latitude, pos.longitude, res);
+					if (data.counts[cell] !== undefined) {
+						(cellAlts[cell] ??= []).push(pos.altitude);
+					}
+				}
+			}
+			const visitedCells: Record<string, number> = {};
+			for (const [cell, alts] of Object.entries(cellAlts)) {
+				const sorted = [...alts].sort((a, b) => a - b);
+				visitedCells[cell] = sorted[Math.floor(sorted.length / 2)];
+			}
+			this.colsCellCache[res] = visitedCells;
+			this.logger.log('Elevation', `showCols res=${res} — ${Object.keys(visitedCells).length} cells (computed)`);
+		}
+
+		(this.map.getSource('cols-heatmap') as maplibregl.GeoJSONSource).setData(
+			this.h3.cellsToHeatmapGeoJSON(this.colsCellCache[res]!),
+		);
+		this.map.setLayoutProperty('cols-fill', 'visibility', 'visible');
+	}
+
+	private hideCols(): void {
+		this.hexHoverAlt.set(null);
+		if (this.map?.getLayer('cols-fill')) {
+			this.map.setLayoutProperty('cols-fill', 'visibility', 'none');
+		}
+	}
+
 	private clearDeptFocus(): void {
 		if (this.lockDeptFocus) {
 			this.logger.log('Map', '[CLEARFOCUS] Prevented by lockDeptFocus');
@@ -1855,6 +2134,7 @@ export class Map {
 	}
 
 	private showTripLine(trip: TripWithCoords): void {
+		this.logger.log('Trip', trip.indexId, trip);
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		const coords = trip.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
 		this.selectedTripCoords = coords;

@@ -76,6 +76,15 @@
 					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🗺️</span>
 					<span>Mes trajets</span>
 				</button>
+				<button
+					class="ctrl-menu-item"
+					[class.active]="colsMode()"
+					[disabled]="elevationLoading()"
+					(click)="toggleColsMode(); showViewMenu.set(false)"
+				>
+					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
+					<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
+				</button>
 
 				<div class="ctrl-menu-sep"></div>
 
@@ -133,6 +142,17 @@
 	</div>
 }
 
+@if (elevationLoading()) {
+	<div class="overlay-loading">
+		<span>
+			Analyse du relief…
+			@if (elevationBatchTotal() > 0) {
+				({{ elevationBatchDone() }}/{{ elevationBatchTotal() }})
+			}
+		</span>
+	</div>
+}
+
 @if (error()) {
 	<div class="overlay-loading overlay-error">
 		<span>{{ error() }}</span>
@@ -186,6 +206,13 @@
 					<span class="stat-value">{{ hexagonCount() }}</span>
 					<span class="stat-label">hex.</span>
 				</div>
+				@if (colsMode() && hexHoverAlt() !== null) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">~{{ hexHoverAlt() }}</span>
+						<span class="stat-label">m alt.</span>
+					</div>
+				}
 			}
 			@if (isDevMode) {
 				<span class="stat-sep">·</span>

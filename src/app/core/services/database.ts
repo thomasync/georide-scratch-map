@@ -1,8 +1,12 @@
 import { Injectable } from '@angular/core';
 import { catchError, Observable, of, shareReplay, switchMap } from 'rxjs';
 import { Trip } from '../models/trip';
+import { GeoRidePosition } from './georide-api';
 
-export type StoredTrip = Trip & { indexId: string };
+export type StoredTrip = Trip & {
+	indexId: string;
+	positions?: GeoRidePosition[];
+};
 
 interface KvEntry<T> {
 	value: T;
@@ -136,6 +140,32 @@ export class DatabaseService {
 					}),
 			),
 			catchError(() => of([])),
+		);
+	}
+
+	upsertTripPositions(items: { indexId: string; positions: GeoRidePosition[] }[]): Observable<void> {
+		if (!items.length) return of(void 0);
+		return this.db$.pipe(
+			switchMap(
+				(db) =>
+					new Observable<void>((s) => {
+						const tx = db.transaction(this.TRIPS, 'readwrite');
+						const store = tx.objectStore(this.TRIPS);
+						for (const { indexId, positions } of items) {
+							const req = store.get(indexId);
+							req.onsuccess = () => {
+								if (req.result) store.put({ ...req.result, positions });
+							};
+						}
+						tx.oncomplete = () => {
+							s.next();
+							s.complete();
+						};
+						tx.onerror = () => s.error(tx.error);
+						tx.onabort = () => s.error(new Error('upsertTripPositions: transaction aborted'));
+					}),
+			),
+			catchError(() => of(void 0)),
 		);
 	}
 
