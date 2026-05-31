@@ -209,6 +209,7 @@ export class Map {
 	stopsMode = signal(false);
 	speedMode = signal(false);
 	elevationLoading = signal(false);
+	elevationLoadingLabel = signal('Analyse du relief…');
 	elevationBatchDone = signal(0);
 	elevationBatchTotal = signal(0);
 	hexHoverAlt = signal(null as number | null);
@@ -836,6 +837,22 @@ export class Map {
 		});
 
 		this.map.on('zoomend', () => this.updateView());
+
+		// Mise à jour instantanée en cours d'animation quand un seuil est franchi
+		let _prevZoom = this.map.getZoom();
+		this.map.on('zoom', () => {
+			const z = this.map!.getZoom();
+			const thresholds = [
+				this.deptThreshold,
+				9, // résolution hex 6 ↔ 7
+				this.isMobile
+					? this.mapSettings.polylineModeZoomThresholdMob()
+					: this.mapSettings.polylineModeZoomThresholdDesk(),
+			];
+			if (thresholds.some((t) => _prevZoom < t !== z < t)) this.updateView();
+			_prevZoom = z;
+		});
+
 		this.map.on('move', () => this.zoom.set(parseFloat(this.map!.getZoom().toFixed(2))));
 		if (this.isMobile) {
 			this.map.getCanvas().addEventListener(
@@ -890,9 +907,22 @@ export class Map {
 			});
 		});
 
+		this.map.on('zoom', () => {
+			if (this.ctxMenuPopup && (this.map?.getZoom() ?? 0) < 12) {
+				this.ctxMenuPopup.remove();
+				this.ctxMenuPopup = null;
+			}
+		});
+
 		this.map.on('click', (e) => {
 			if (e.originalEvent.defaultPrevented) return;
 			if ((e.originalEvent.target as HTMLElement)?.closest?.('.maplibregl-popup')) return;
+			// Fermer le contextmenu sur tout clic hors popup
+			if (this.ctxMenuPopup) {
+				this.ctxMenuPopup.remove();
+				this.ctxMenuPopup = null;
+				return;
+			}
 			if (this.map?.queryRenderedFeatures(e.point, { layers: ['stat-points-layer'] }).length) return;
 			if (this.selectedTripCoords) {
 				this.justClosedTrip = true;
@@ -1136,6 +1166,24 @@ export class Map {
 
 					this.addLayers();
 					this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
+
+					// Si les positions ont déjà été chargées (timestamp en IDB),
+					// recharger silencieusement en arrière-plan + invalider les caches de modes
+					this.db.kvGet<number>('positions_sync_ts').subscribe((ts) => {
+						if (ts === null) return;
+						this.tripAltProfiles = {};
+						this.colsCellCache = {};
+						this.turnsCellCache = {};
+						this.speedCellCache = {};
+						this.speedCellStatsCache = {};
+						this.tripSegmentsCache = {};
+						this.syncTripAltitudes().subscribe({
+							next: (profiles) => {
+								this.tripAltProfiles = profiles;
+							},
+							error: () => {},
+						});
+					});
 				},
 				error: (err) => {
 					this.logger.error('Map', 'API error', err);
@@ -2568,10 +2616,12 @@ export class Map {
 			}
 		}
 
+		this.elevationLoadingLabel.set('Analyse du relief…');
 		this.elevationLoading.set(true);
 		this.syncTripAltitudes().subscribe({
 			next: (profiles) => {
 				this.tripAltProfiles = profiles;
+				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
 				this.elevationLoading.set(false);
 				this.colsMode.set(true);
 				this.showCols();
@@ -2874,9 +2924,11 @@ export class Map {
 			}
 		}
 
+		this.elevationLoadingLabel.set('Analyse des virages…');
 		this.elevationLoading.set(true);
 		this.syncTripAltitudes().subscribe({
 			next: () => {
+				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
 				this.elevationLoading.set(false);
 				this.turnsMode.set(true);
 				this.showTurns();
@@ -3028,9 +3080,11 @@ export class Map {
 			}
 		}
 
+		this.elevationLoadingLabel.set('Analyse des vitesses…');
 		this.elevationLoading.set(true);
 		this.syncTripAltitudes().subscribe({
 			next: () => {
+				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
 				this.elevationLoading.set(false);
 				this.speedMode.set(true);
 				this.showSpeed();

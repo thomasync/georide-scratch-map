@@ -415,8 +415,8 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		const t = this.trip!;
 		this.distanceKm = Math.round(t.distance / 1000);
 		this.durationStr = formatDuration(t.duration);
-		this.avgSpeedKmh = Math.round(t.averageSpeed);
-		this.maxSpeedKmh = Math.round(t.maxSpeed);
+		this.avgSpeedKmh = Math.round(t.averageSpeed * 1.852);
+		this.maxSpeedKmh = Math.round(t.maxSpeed * 1.852);
 		this.startLabel = extractCity(t.niceStartAddress ?? t.startAddress) ?? t.startAddress ?? '—';
 		this.endLabel = extractCity(t.niceEndAddress ?? t.endAddress) ?? t.endAddress ?? '—';
 		this.dateLabel = formatDate(t.startTime);
