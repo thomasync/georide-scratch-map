@@ -62,6 +62,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	@Output() fitTripEvent = new EventEmitter<void>();
 	@Output() selectTripEvent = new EventEmitter<TripWithCoords>();
 	@Output() showStatPoints = new EventEmitter<[number, number][]>();
+	@Output() animatePath = new EventEmitter<[number, number][]>();
 
 	@ViewChild(BaseChartDirective) chartRef?: BaseChartDirective;
 
@@ -180,14 +181,15 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 
 	onPauseNav(dir: -1 | 1): void {
 		if (!this.ptPauses.length) return;
+		const prevIdx = this.currentPauseIdx;
 		if (this.currentPauseIdx === null) {
 			this.currentPauseIdx = dir === 1 ? 0 : this.ptPauses.length - 1;
 		} else {
 			const next = this.currentPauseIdx + dir;
-			if (next < 0 || next >= this.ptPauses.length) return; // bloqué aux extrémités
+			if (next < 0 || next >= this.ptPauses.length) return;
 			this.currentPauseIdx = next;
 		}
-		this.goToPause(this.currentPauseIdx);
+		this.goToPause(this.currentPauseIdx, prevIdx);
 	}
 
 	onPauseReset(): void {
@@ -198,11 +200,52 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		);
 	}
 
-	private goToPause(idx: number): void {
-		const pt = this.ptPauses[idx];
+	private goToPause(toIdx: number, fromIdx: number | null = null): void {
+		const pt = this.ptPauses[toIdx];
 		if (!pt) return;
 		this.showStatPoints.emit([pt]);
+
+		// Si on vient d'une pause précédente et qu'on a les positions → suivre le polyline
+		const positions = this.positions;
+		if (fromIdx !== null && positions?.length) {
+			const fromPt = this.ptPauses[fromIdx];
+			const path = this.extractPath(fromPt, pt, positions);
+			if (path.length > 2) {
+				this.animatePath.emit(path);
+				return;
+			}
+		}
 		this.snapToPosition.emit(pt);
+	}
+
+	private extractPath(
+		from: [number, number],
+		to: [number, number],
+		positions: GeoRidePosition[],
+	): [number, number][] {
+		// Trouver l'index de position le plus proche pour chaque pause
+		const nearest = (lat: number, lon: number): number => {
+			let best = 0;
+			let bestD = Infinity;
+			for (let i = 0; i < positions.length; i++) {
+				const d = (positions[i].latitude - lat) ** 2 + (positions[i].longitude - lon) ** 2;
+				if (d < bestD) {
+					bestD = d;
+					best = i;
+				}
+			}
+			return best;
+		};
+		const a = nearest(from[0], from[1]);
+		const b = nearest(to[0], to[1]);
+		const [start, end] = a < b ? [a, b] : [b, a];
+		// Sous-échantillonner : max ~40 points pour fluidité
+		const slice = positions.slice(start, end + 1);
+		const step = Math.max(1, Math.floor(slice.length / 10));
+		const coords = slice
+			.filter((_, i) => i % step === 0 || i === slice.length - 1)
+			.map((p) => [p.longitude, p.latitude] as [number, number]);
+		return a < b ? coords : [...coords].reverse();
 	}
 
 	// Chart window (50 km max)
@@ -432,7 +475,14 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 
 		// Fusionner les pauses géographiquement proches (< 200 m)
 		const MERGE_KM = 0.2;
-		const merged: typeof this.pauseZones = [];
+		const merged: {
+			startKm: number;
+			endKm: number;
+			label: string;
+			durationMin: number;
+			lat: number;
+			lon: number;
+		}[] = [];
 		for (const z of this.pauseZones) {
 			const nearby = merged.find((m) => haversineKm(m.lat, m.lon, z.lat, z.lon) < MERGE_KM);
 			if (nearby) {
@@ -734,7 +784,10 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	tripDate(trip: TripWithCoords): string {
-		return new Date(trip.startTime).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+		const d = new Date(trip.startTime);
+		const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+		const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		return `${date} · ${time}`;
 	}
 
 	roundKm(distM: number): number {

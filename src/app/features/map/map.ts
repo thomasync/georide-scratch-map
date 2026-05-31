@@ -3445,6 +3445,41 @@ export class Map {
 		});
 	}
 
+	private pathAnimTimer: ReturnType<typeof setTimeout> | null = null;
+
+	onAnimatePath(coords: [number, number][]): void {
+		if (!this.map || !coords.length) return;
+		if (this.pathAnimTimer) {
+			clearTimeout(this.pathAnimTimer);
+			this.pathAnimTimer = null;
+		}
+
+		const n = coords.length;
+		const TRAVEL_ZOOM = 12;
+		const END_ZOOM = 15;
+
+		// Dezoom à 12 au départ
+		this.map.easeTo({ center: coords[0], zoom: TRAVEL_ZOOM, duration: 500 });
+
+		// Puis suivre le polyline à zoom 12, et rezoomer à 15 à l'arrivée
+		this.pathAnimTimer = setTimeout(() => {
+			let i = 1;
+			const step = () => {
+				if (!this.map || i >= n) return;
+				const isLast = i === n - 1;
+				this.map.easeTo({
+					center: coords[i],
+					zoom: isLast ? END_ZOOM : TRAVEL_ZOOM,
+					duration: isLast ? 600 : 300,
+					easing: (v) => v,
+				});
+				i++;
+				if (i < n) this.pathAnimTimer = setTimeout(step, isLast ? 0 : 270);
+			};
+			step();
+		}, 520);
+	}
+
 	onSnapToPosition(pos: [number, number]): void {
 		if (!this.map) return;
 		this.map.easeTo({ center: [pos[1], pos[0]], zoom: Math.max(this.map.getZoom(), 15), duration: 1000 });
