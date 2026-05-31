@@ -248,12 +248,43 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		return a < b ? coords : [...coords].reverse();
 	}
 
-	// Chart window (50 km max)
-	private readonly WINDOW_KM = 50;
-	private chartTotalKm = 0;
+	// Chart window : 30 km sur mobile, 50 km sur desktop
+	get WINDOW_KM(): number {
+		return window.innerWidth <= 640 ? 30 : 50;
+	}
+	chartTotalKm = 0;
 	private windowStartKm = 0;
 	private touchStartX = 0;
 	private touchStartWindowKm = 0;
+	private scrubberStartX = 0;
+	private scrubberStartWindowKm = 0;
+	private scrubberTrackWidth = 0;
+
+	get scrubberLeft(): number {
+		if (!this.chartTotalKm) return 0;
+		return (this.windowStartKm / this.chartTotalKm) * 100;
+	}
+
+	get scrubberThumbWidth(): number {
+		if (!this.chartTotalKm) return 100;
+		return Math.min((this.WINDOW_KM / this.chartTotalKm) * 100, 100);
+	}
+
+	onScrubberTouchStart(e: TouchEvent): void {
+		this.scrubberStartX = e.touches[0].clientX;
+		this.scrubberStartWindowKm = this.windowStartKm;
+		const track = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		this.scrubberTrackWidth = track.width;
+		e.preventDefault();
+	}
+
+	onScrubberTouchMove(e: TouchEvent): void {
+		if (!this.scrubberTrackWidth) return;
+		const deltaX = e.touches[0].clientX - this.scrubberStartX;
+		const kmPerPx = this.chartTotalKm / this.scrubberTrackWidth;
+		this.scrollChartTo(this.scrubberStartWindowKm + deltaX * kmPerPx);
+		e.preventDefault();
+	}
 
 	// Scroll continu via RAF
 	private scrollRafId: number | null = null;

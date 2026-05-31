@@ -526,7 +526,9 @@ export class Map {
 	}
 
 	onWorldMapClick(): void {
-		if (!this.isMobile) {
+		if (this.isMobile) {
+			this.showViewMenu.set(!this.showViewMenu());
+		} else {
 			this.viewMyTrips();
 			this.showViewMenu.set(false);
 		}
@@ -2551,7 +2553,8 @@ export class Map {
 		if (Object.keys(this.tripAltProfiles).length > 0) {
 			this.colsMode.set(true);
 			this.showCols();
-			if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
+				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			return;
 		}
 
@@ -2572,7 +2575,8 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.colsMode.set(true);
 				this.showCols();
-				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
+					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Elevation', 'sync failed', err);
@@ -2876,7 +2880,8 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.turnsMode.set(true);
 				this.showTurns();
-				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
+					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Turns', 'sync failed', err);
@@ -2975,7 +2980,8 @@ export class Map {
 		}
 		this.stopsMode.set(true);
 		this.showStops();
-		if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+		if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
+			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 	}
 
 	private showStops(): void {
@@ -3028,7 +3034,8 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.speedMode.set(true);
 				this.showSpeed();
-				if ((this.map?.getZoom() ?? 0) < 13) this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
+					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
 			},
 			error: (err) => {
 				this.logger.error('Speed', 'sync failed', err);

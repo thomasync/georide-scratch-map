@@ -8,7 +8,7 @@
 	} @else if (combinedChartData.datasets.length > 0) {
 		<div class="tdp-card tdp-card--chart">
 			<div class="tdp-section-title">
-				Profil du trajet
+				<span class="tdp-chart-title-text">Profil du trajet</span>
 				@if (hoverTime !== null) {
 					<span class="tdp-hover-stat tdp-hover-time">{{ hoverTime }}</span>
 					<span class="tdp-hover-stat tdp-hover-km">{{ hoverKm }} km</span>
@@ -41,15 +41,10 @@
 						<line x1="2" y1="12" x2="7" y2="12" />
 						<line x1="17" y1="12" x2="22" y2="12" />
 					</svg>
-					Suivre
+					<span class="tdp-follow-label">Suivre</span>
 				</button>
 			</div>
-			<div
-				class="tdp-chart-wrap"
-				(mouseleave)="onMouseLeaveChart()"
-				(touchstart)="onChartTouchStart($event)"
-				(touchmove)="onChartTouchMove($event)"
-			>
+			<div class="tdp-chart-wrap" (mouseleave)="onMouseLeaveChart()">
 				<canvas
 					baseChart
 					[data]="combinedChartData"
@@ -59,6 +54,19 @@
 				>
 				</canvas>
 			</div>
+			@if (chartTotalKm > WINDOW_KM) {
+				<div
+					class="tdp-scrubber"
+					(touchstart)="onScrubberTouchStart($event)"
+					(touchmove)="onScrubberTouchMove($event)"
+				>
+					<div
+						class="tdp-scrubber-thumb"
+						[style.left.%]="scrubberLeft"
+						[style.width.%]="scrubberThumbWidth"
+					></div>
+				</div>
+			}
 		</div>
 	}
 

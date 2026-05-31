@@ -109,6 +109,12 @@
 
 .tdp-follow-btn {
 	margin-left: auto;
+
+	.tdp-follow-label {
+		@media (max-width: 640px) {
+			display: none;
+		}
+	}
 	display: flex;
 	align-items: center;
 	gap: 0.3rem;
@@ -168,10 +174,39 @@
 }
 
 // --- Graphique ---
+.tdp-chart-title-text {
+	@media (max-width: 640px) {
+		display: none;
+	}
+}
+
 .tdp-chart-wrap {
 	height: 130px;
 	padding: 0 0.6rem 0.4rem;
 	cursor: crosshair;
+}
+
+.tdp-scrubber {
+	position: relative;
+	height: 4px;
+	margin: 0 0.6rem 0.4rem;
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 2px;
+	touch-action: none;
+	cursor: grab;
+}
+
+.tdp-scrubber-thumb {
+	position: absolute;
+	top: 0;
+	height: 100%;
+	background: rgba(255, 255, 255, 0.35);
+	border-radius: 2px;
+	transition: background 0.15s;
+
+	.tdp-scrubber:active & {
+		background: #fdb300;
+	}
 }
 
 .tdp-loading {
