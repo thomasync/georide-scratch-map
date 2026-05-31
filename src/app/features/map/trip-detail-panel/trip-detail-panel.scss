@@ -349,9 +349,96 @@
 	}
 }
 
+.tdp-stat-clickable {
+	cursor: pointer;
+	transition: opacity 0.15s;
+
+	&:hover {
+		opacity: 0.65;
+	}
+
+	&.tdp-stat-active b {
+		color: #fdb300;
+		opacity: 1;
+	}
+}
+
 .tdp-stat-sep {
 	color: rgba(255, 255, 255, 0.18);
 	font-size: 0.85rem;
+}
+
+.tdp-pause-nav {
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+	flex-shrink: 0;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
+	padding: 0.2rem 0.35rem;
+}
+
+.tdp-pause-nav-btn {
+	background: none;
+	border: none;
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 0.65rem;
+	cursor: pointer;
+	padding: 0 0.1rem;
+	font-family: inherit;
+	line-height: 1;
+	transition: color 0.15s;
+
+	&:hover:not(:disabled) {
+		color: #fdb300;
+	}
+	&:disabled {
+		color: rgba(255, 255, 255, 0.18);
+		cursor: default;
+	}
+}
+
+.tdp-pause-nav-label {
+	font-size: 0.65rem;
+	color: rgba(255, 255, 255, 0.45);
+	font-variant-numeric: tabular-nums;
+	min-width: 2rem;
+	text-align: center;
+}
+
+.tdp-pause-nav-reset {
+	cursor: pointer;
+	transition: color 0.15s;
+
+	&:hover {
+		color: #fdb300;
+	}
+}
+
+.tdp-stats-toggle {
+	flex-shrink: 0;
+	background: rgba(255, 255, 255, 0.07);
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	border-radius: 50%;
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 0.75rem;
+	font-family: inherit;
+	width: 1.3rem;
+	height: 1.3rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	line-height: 1;
+	transition:
+		background 0.15s,
+		color 0.15s;
+
+	&:hover {
+		background: rgba(255, 255, 255, 0.13);
+		color: rgba(255, 255, 255, 0.8);
+	}
 }
 
 // --- Villes ---

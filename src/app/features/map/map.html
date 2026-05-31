@@ -372,9 +372,13 @@
 		(closePanelEvent)="clearTripLine()"
 		(showFullDayEvent)="onShowFullDay($event)"
 		(flyToPosition)="onFlyToPosition($event)"
+		(snapToPosition)="onSnapToPosition($event)"
+		(showPauseChips)="onShowPauseChips($event)"
+		[activePauseIdx]="clickedPauseIdx()"
 		(followPosition)="onFollowPosition($event)"
 		(fitTripEvent)="onFitTrip()"
 		(selectTripEvent)="onSelectTrip($event)"
+		(showStatPoints)="onShowStatPoints($event)"
 	/>
 }
 

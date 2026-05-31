@@ -141,6 +141,40 @@ router-outlet {
 	margin-left: -1px;
 }
 
+// Context menu (clic droit)
+.ctx-menu {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	padding: 0.1rem 0;
+}
+
+.ctx-coords {
+	font-size: 0.72rem;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.02em;
+	padding-bottom: 0.25rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.ctx-btn {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	font-size: 0.8rem;
+	color: var(--text);
+	text-decoration: none;
+	padding: 0.3rem 0.4rem;
+	border-radius: 6px;
+	transition: background 0.12s;
+
+	&:hover {
+		background: color-mix(in srgb, var(--text) 8%, transparent);
+		color: var(--accent);
+	}
+}
+
 .popup-header-row {
 	display: flex;
 	align-items: center;

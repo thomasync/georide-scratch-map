@@ -162,6 +162,7 @@ export class Map {
 	private departments: GeoJSON.FeatureCollection | null = null;
 	private enrichedDepts: GeoJSON.FeatureCollection | null = null;
 	private popup: maplibregl.Popup | null = null;
+	private ctxMenuPopup: maplibregl.Popup | null = null;
 	private selectedTripCoords: [number, number][] | null = null;
 	private keepTripLineOnClose = false;
 	private keepStopsPreviewOnClose = false;
@@ -227,6 +228,8 @@ export class Map {
 	showTripPanel = signal(false);
 	selectedTripForPanel = signal<TripWithCoords | null>(null);
 	selectedTripPositions = signal<GeoRidePosition[] | null>(null);
+	clickedPauseIdx = signal<number | null>(null);
+	private pauseChipsData: { lat: number; lon: number; label: string }[] = [];
 
 	get allTripsForPanel(): TripWithCoords[] {
 		return this.allTripsWithCoords;
@@ -852,7 +855,43 @@ export class Map {
 				{ passive: true },
 			);
 		}
-		this.map.on('click', () => {
+		this.map.on('contextmenu', (e) => {
+			e.originalEvent.preventDefault();
+			e.originalEvent.stopPropagation();
+			if ((this.map?.getZoom() ?? 0) < 12) return;
+			// Fermer le contextmenu précédent s'il existe
+			this.ctxMenuPopup?.remove();
+			this.ctxMenuPopup = null;
+			const { lat, lng } = e.lngLat;
+			const latStr = lat.toFixed(6);
+			const lngStr = lng.toFixed(6);
+			const googleUrl = `https://www.google.com/maps?q=${latStr},${lngStr}`;
+			const wazeUrl = `https://waze.com/ul?ll=${latStr},${lngStr}&navigate=yes`;
+			this.ctxMenuPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px', offset: 8 })
+				.setLngLat(e.lngLat)
+				.setHTML(
+					`
+					<div class="ctx-menu">
+						<div class="ctx-coords">${latStr}, ${lngStr}</div>
+						<a class="ctx-btn" href="${googleUrl}" target="_blank" rel="noopener noreferrer">
+							<span>📍</span> Google Maps
+						</a>
+						<a class="ctx-btn" href="${wazeUrl}" target="_blank" rel="noopener noreferrer">
+							<span>🚗</span> Waze
+						</a>
+					</div>
+				`,
+				)
+				.addTo(this.map!);
+			this.ctxMenuPopup?.on('close', () => {
+				this.ctxMenuPopup = null;
+			});
+		});
+
+		this.map.on('click', (e) => {
+			if (e.originalEvent.defaultPrevented) return;
+			if ((e.originalEvent.target as HTMLElement)?.closest?.('.maplibregl-popup')) return;
+			if (this.map?.queryRenderedFeatures(e.point, { layers: ['stat-points-layer'] }).length) return;
 			if (this.selectedTripCoords) {
 				this.justClosedTrip = true;
 				this.clearTripLine();
@@ -1511,6 +1550,68 @@ export class Map {
 			});
 		}
 
+		// --- Stat highlight points ---
+		if (!this.map.getSource('stat-points')) {
+			this.map.addSource('stat-points', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'stat-points-layer',
+				type: 'circle',
+				source: 'stat-points',
+				paint: {
+					'circle-radius': 5,
+					'circle-color': '#fff',
+					'circle-stroke-color': '#fdb300',
+					'circle-stroke-width': 2,
+				},
+			});
+			this.map.on('click', 'stat-points-layer', (e) => {
+				e.originalEvent.preventDefault();
+				e.originalEvent.stopPropagation();
+				const coords = (e.features?.[0]?.geometry as GeoJSON.Point)?.coordinates;
+				if (!coords) return;
+				const [lon, lat] = coords;
+				// Identifier si c'est un dot de pause et lequel
+				const pauseIdx = this.pauseChipsData.findIndex(
+					(p) => Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lon - lon) < 0.0001,
+				);
+				if (pauseIdx >= 0) this.clickedPauseIdx.set(pauseIdx);
+				this.map!.easeTo({ center: [lon, lat], zoom: 15, duration: 1000 });
+			});
+			this.map.on('mouseenter', 'stat-points-layer', () => {
+				if (this.map) this.map.getCanvas().style.cursor = 'pointer';
+			});
+			this.map.on('mouseleave', 'stat-points-layer', () => {
+				if (this.map) this.map.getCanvas().style.cursor = '';
+			});
+		}
+
+		// --- Pause chips (labels au dessus des dots de pause) ---
+		if (!this.map.getSource('pause-chips')) {
+			this.map.addSource('pause-chips', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'pause-chips-layer',
+				type: 'symbol',
+				source: 'pause-chips',
+				layout: {
+					'text-field': ['get', 'label'],
+					'text-size': 11,
+					'text-font': ['Noto Sans Regular'],
+					'text-offset': [0, -1.8],
+					'text-anchor': 'bottom',
+				},
+				paint: {
+					'text-color': '#000000',
+					'text-halo-width': 0,
+				},
+			});
+		}
+
 		// --- Stops circles (au-dessus des polylines) ---
 		if (!this.map.getSource('stops')) {
 			this.map.addSource('stops', {
@@ -1669,7 +1770,7 @@ export class Map {
 		const mode: Mode =
 			this.newTripIndicesForPolyline && zoom > this.deptThreshold
 				? 'polyline'
-				: zoom <= this.deptThreshold
+				: zoom <= this.deptThreshold && !this.selectedTripCoords
 					? 'dept'
 					: zoom >= polylineThreshold && !this.selectedTripCoords
 						? 'polyline'
@@ -1990,6 +2091,10 @@ export class Map {
 	}
 
 	private onHexClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }): void {
+		if (e.originalEvent.defaultPrevented) return;
+		if ((e.originalEvent.target as HTMLElement)?.closest?.('.maplibregl-popup')) return;
+		// Ne pas traiter si l'utilisateur a cliqué sur un stat-point (pause, max vitesse…)
+		if (this.map?.queryRenderedFeatures(e.point, { layers: ['stat-points-layer'] }).length) return;
 		if (this.stopPopup) {
 			this.stopPopup.remove();
 			return;
@@ -3262,6 +3367,18 @@ export class Map {
 			this.map.setLayoutProperty('trip-line-segments-layer', 'visibility', 'none');
 			this.map.setPaintProperty('trip-line', 'line-opacity', 0.9);
 		}
+		if (this.map?.getSource('stat-points')) {
+			(this.map.getSource('stat-points') as maplibregl.GeoJSONSource).setData({
+				type: 'FeatureCollection',
+				features: [],
+			});
+		}
+		if (this.map?.getSource('pause-chips')) {
+			(this.map.getSource('pause-chips') as maplibregl.GeoJSONSource).setData({
+				type: 'FeatureCollection',
+				features: [],
+			});
+		}
 		if (!skipUpdateView) {
 			this.currentMode = null;
 			this.updateView();
@@ -3296,8 +3413,41 @@ export class Map {
 		this.fitToVisited([trip.coords], 14);
 	}
 
+	onShowStatPoints(pts: [number, number][]): void {
+		if (!this.map?.getSource('stat-points')) return;
+		(this.map.getSource('stat-points') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features: pts.map(([lat, lon]) => ({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [lon, lat] },
+				properties: {},
+			})),
+		});
+		if (pts.length > 1) this.fitToVisited([pts.map(([lat, lon]) => [lat, lon] as [number, number])], 14);
+	}
+
 	onFitTrip(): void {
-		if (this.selectedTrip) this.fitToVisited([this.selectedTrip.coords], 14);
+		// selectedTripForPanel a les coords fusionnées en mode boucle
+		const coords = this.selectedTripForPanel()?.coords ?? this.selectedTrip?.coords;
+		if (coords) this.fitToVisited([coords], 14);
+	}
+
+	onShowPauseChips(chips: { lat: number; lon: number; label: string }[]): void {
+		this.pauseChipsData = chips;
+		if (!this.map?.getSource('pause-chips')) return;
+		(this.map.getSource('pause-chips') as maplibregl.GeoJSONSource).setData({
+			type: 'FeatureCollection',
+			features: chips.map(({ lat, lon, label }) => ({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [lon, lat] },
+				properties: { label },
+			})),
+		});
+	}
+
+	onSnapToPosition(pos: [number, number]): void {
+		if (!this.map) return;
+		this.map.easeTo({ center: [pos[1], pos[0]], zoom: Math.max(this.map.getZoom(), 15), duration: 1000 });
 	}
 
 	onFlyToPosition(pos: [number, number]): void {
