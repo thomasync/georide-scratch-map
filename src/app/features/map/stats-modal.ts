@@ -46,6 +46,14 @@ export class StatsModalComponent {
 
 	private static countryNames = new Intl.DisplayNames(['fr'], { type: 'region' });
 
+	private static safeCountryName(code: string): string {
+		try {
+			return StatsModalComponent.countryNames.of(code) ?? code;
+		} catch {
+			return code;
+		}
+	}
+
 	deptsByCountry(): { countryCode: string; countryName: string; depts: StatsModalData['depts'] }[] {
 		if (!this.data) return [];
 		const groups = new Map<string, StatsModalData['depts']>();
@@ -56,7 +64,7 @@ export class StatsModalComponent {
 		}
 		return [...groups.entries()].map(([code, depts]) => ({
 			countryCode: code,
-			countryName: StatsModalComponent.countryNames.of(code) ?? code,
+			countryName: StatsModalComponent.safeCountryName(code),
 			depts,
 		}));
 	}
@@ -94,7 +102,7 @@ export class StatsModalComponent {
 		}
 		return Object.entries(pctByCountry)
 			.sort((a, b) => b[1] - a[1])
-			.map(([code]) => StatsModalComponent.countryNames.of(code) ?? code)
+			.map(([code]) => StatsModalComponent.safeCountryName(code))
 			.join(' et ');
 	}
 
