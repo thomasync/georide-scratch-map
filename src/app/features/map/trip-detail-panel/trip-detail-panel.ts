@@ -302,7 +302,21 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	followEnabled = false;
 	isLoopActive = false;
 	showTripsPopup = false;
+	showSuggestedPopup = false;
+	excludedTripIds = new Set<string>();
+	suggestedTrips: TripWithCoords[] = [];
 	showAllStats = false;
+
+	get allLoopDisplayTrips(): { trip: TripWithCoords; state: 'active' | 'excluded' | 'suggested' }[] {
+		const active = this.dayTrips.map((t) => ({ trip: t, state: 'active' as const }));
+		const excluded = this.allTrips
+			.filter((t) => this.excludedTripIds.has(t.indexId) && t.trackerId === this.trip?.trackerId)
+			.map((t) => ({ trip: t, state: 'excluded' as const }));
+		const suggested = this.suggestedTrips
+			.filter((t) => !this.excludedTripIds.has(t.indexId))
+			.map((t) => ({ trip: t, state: 'suggested' as const }));
+		return [...active, ...excluded, ...suggested].sort((a, b) => a.trip.startTime.localeCompare(b.trip.startTime));
+	}
 
 	// Plugin pauses : ligne verticale pointillée + durée
 	readonly pausePlugin = {
@@ -660,17 +674,19 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			this.dayTrips = [];
 			return;
 		}
-		const date = this.trip.startTime.substring(0, 10);
 		const tid = this.trip.trackerId;
-		const sameDayTrips = this.allTrips.filter((t) => t.startTime.substring(0, 10) === date && t.trackerId === tid);
+		// Pas de filtre par date : isLinkedTrip (3h max + 3km) suffit à limiter la recherche
+		// On exclut les trajets manuellement retirés de la boucle
+		const sameTrackerTrips = this.allTrips.filter(
+			(t) => t.trackerId === tid && !this.excludedTripIds.has(t.indexId),
+		);
 
-		// BFS : part du trajet cliqué et propage transitivement le lien entre segments
-		// (A→B et B→C → A,B,C trouvés même si A et C ne sont pas directement liés)
+		// BFS : part du trajet cliqué et propage transitivement
 		const found = new Set<string>([this.trip.indexId]);
 		const queue: TripWithCoords[] = [this.trip];
 		while (queue.length > 0) {
 			const current = queue.shift()!;
-			for (const candidate of sameDayTrips) {
+			for (const candidate of sameTrackerTrips) {
 				if (!found.has(candidate.indexId) && isLinkedTrip(current, candidate)) {
 					found.add(candidate.indexId);
 					queue.push(candidate);
@@ -678,7 +694,25 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			}
 		}
 
-		this.dayTrips = sameDayTrips.filter((t) => found.has(t.indexId));
+		this.dayTrips = sameTrackerTrips.filter((t) => found.has(t.indexId));
+
+		// Suggestions : trajets hors boucle active, liés à un trajet actif avec 3h-8h de pause
+		const allTrackerTrips = this.allTrips.filter((t) => t.trackerId === tid);
+		const suggestedIds = new Set<string>();
+		for (const activeTrip of this.dayTrips) {
+			for (const candidate of allTrackerTrips) {
+				if (
+					!found.has(candidate.indexId) &&
+					!this.excludedTripIds.has(candidate.indexId) &&
+					!suggestedIds.has(candidate.indexId) &&
+					isLinkedTrip(activeTrip, candidate, 8)
+				) {
+					suggestedIds.add(candidate.indexId);
+				}
+			}
+		}
+		this.suggestedTrips = allTrackerTrips.filter((t) => suggestedIds.has(t.indexId));
+
 		if (this.dayTrips.length > 1) {
 			this.dayLabel = 'Afficher la boucle';
 		}
@@ -811,7 +845,47 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		e.stopPropagation();
 		this.showTripsPopup = false;
 		this.isLoopActive = false;
+		this.excludedTripIds.clear();
 		this.selectTripEvent.emit(trip);
+	}
+
+	onRemoveTripFromLoop(trip: TripWithCoords, e: Event): void {
+		e.stopPropagation();
+		this.excludedTripIds.add(trip.indexId);
+		this.updateDayTrips();
+		this.cdr.detectChanges();
+		if (this.dayTrips.length === 0) {
+			this.onClose();
+			return;
+		}
+		if (this.dayTrips.length === 1) {
+			this.isLoopActive = false;
+			this.showTripsPopup = false;
+			this.excludedTripIds.clear();
+			this.selectTripEvent.emit(this.dayTrips[0]);
+			return;
+		}
+		this.showFullDayEvent.emit(this.dayTrips);
+	}
+
+	onAddTripToLoop(trip: TripWithCoords, e: Event): void {
+		e.stopPropagation();
+		this.excludedTripIds.delete(trip.indexId);
+		this.dayTrips = [...this.dayTrips, trip].sort((a, b) => a.startTime.localeCompare(b.startTime));
+		this.suggestedTrips = this.suggestedTrips.filter((t) => t.indexId !== trip.indexId);
+		// Activer le mode boucle si pas encore actif
+		if (!this.isLoopActive) {
+			this.isLoopActive = true;
+			this.showSuggestedPopup = false;
+		}
+		this.cdr.detectChanges();
+		this.showFullDayEvent.emit(this.dayTrips);
+	}
+
+	onToggleSuggestedPopup(e: Event): void {
+		e.stopPropagation();
+		this.showSuggestedPopup = !this.showSuggestedPopup;
+		this.showTripsPopup = false;
 	}
 
 	tripDate(trip: TripWithCoords): string {
@@ -934,6 +1008,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	onClose(): void {
+		this.excludedTripIds.clear();
 		this.closePanelEvent.emit();
 	}
 }
@@ -970,16 +1045,15 @@ function roughDistKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 // Deux trajets sont "liés" si un endpoint de B est proche d'un endpoint de A
 // ET l'écart temporel entre eux est inférieur à MAX_GAP_H heures.
-function isLinkedTrip(a: TripWithCoords, b: TripWithCoords): boolean {
+function isLinkedTrip(a: TripWithCoords, b: TripWithCoords, maxGapH = 3): boolean {
 	const DIST_KM = 3; // 3 km de tolérance GPS/parking
-	const MAX_GAP_H = 4; // max 4h d'écart entre deux segments
 
 	const aEnd = new Date(a.endTime).getTime();
 	const bStart = new Date(b.startTime).getTime();
 	const bEnd = new Date(b.endTime).getTime();
 	const aStart = new Date(a.startTime).getTime();
 	const gapMs = Math.min(Math.abs(aEnd - bStart), Math.abs(bEnd - aStart));
-	if (gapMs > MAX_GAP_H * 3_600_000) return false;
+	if (gapMs > maxGapH * 3_600_000) return false;
 
 	const pairs: [number, number, number, number][] = [
 		[a.startLat, a.startLon, b.startLat, b.startLon],

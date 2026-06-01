@@ -99,6 +99,45 @@
 					</button>
 				</div>
 			}
+			@if (suggestedTrips.length > 0 && dayTrips.length <= 1) {
+				<div class="tdp-trips-wrap">
+					<button class="tdp-fullday-btn" (click)="onToggleSuggestedPopup($event)">
+						<svg
+							width="13"
+							height="13"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.5"
+							stroke-linecap="round"
+						>
+							<path d="M3 12h18M3 6h18M3 18h18" />
+						</svg>
+						Boucle suggérée
+					</button>
+					@if (showSuggestedPopup) {
+						<div class="tdp-trips-popup">
+							@for (item of allLoopDisplayTrips; track item.trip.indexId) {
+								@if (item.state !== 'active') {
+									<div class="tdp-trips-popup-item tdp-trips-popup-item--greyed">
+										<div class="tdp-trips-popup-select">
+											<span class="tdp-trips-popup-date">{{ tripDate(item.trip) }}</span>
+											<span class="tdp-trips-popup-route">{{ tripRoute(item.trip) }}</span>
+											<span class="tdp-trips-popup-km">{{ roundKm(item.trip.distance) }} km</span>
+										</div>
+										<button
+											class="tdp-trips-popup-add"
+											(click)="onAddTripToLoop(item.trip, $event)"
+										>
+											+
+										</button>
+									</div>
+								}
+							}
+						</div>
+					}
+				</div>
+			}
 			@if (dayTrips.length > 1) {
 				@if (!isLoopActive) {
 					<button class="tdp-fullday-btn" (click)="onShowFullDay()" [title]="dayLabel">
@@ -133,12 +172,37 @@
 						</button>
 						@if (showTripsPopup) {
 							<div class="tdp-trips-popup">
-								@for (t of dayTrips; track t.indexId) {
-									<button class="tdp-trips-popup-item" (click)="onSelectTrip(t, $event)">
-										<span class="tdp-trips-popup-date">{{ tripDate(t) }}</span>
-										<span class="tdp-trips-popup-route">{{ tripRoute(t) }}</span>
-										<span class="tdp-trips-popup-km">{{ roundKm(t.distance) }} km</span>
-									</button>
+								@for (item of allLoopDisplayTrips; track item.trip.indexId) {
+									<div
+										class="tdp-trips-popup-item"
+										[class.tdp-trips-popup-item--greyed]="item.state !== 'active'"
+									>
+										<button
+											class="tdp-trips-popup-select"
+											(click)="item.state === 'active' ? onSelectTrip(item.trip, $event) : null"
+										>
+											<span class="tdp-trips-popup-date">{{ tripDate(item.trip) }}</span>
+											<span class="tdp-trips-popup-route">{{ tripRoute(item.trip) }}</span>
+											<span class="tdp-trips-popup-km">{{ roundKm(item.trip.distance) }} km</span>
+										</button>
+										@if (item.state === 'active') {
+											<button
+												class="tdp-trips-popup-remove"
+												(click)="onRemoveTripFromLoop(item.trip, $event)"
+												title="Retirer de la boucle"
+											>
+												✕
+											</button>
+										} @else {
+											<button
+												class="tdp-trips-popup-add"
+												(click)="onAddTripToLoop(item.trip, $event)"
+												title="Ajouter à la boucle"
+											>
+												+
+											</button>
+										}
+									</div>
 								}
 							</div>
 						}

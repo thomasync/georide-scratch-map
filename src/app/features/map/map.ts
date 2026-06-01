@@ -3569,15 +3569,17 @@ export class Map {
 		// Trier chronologiquement
 		const sorted = [...trips].sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-		// Afficher toutes les polylines sur la carte
-		const features = sorted.map((t) => {
-			const coords = t.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
-			return {
-				type: 'Feature' as const,
-				geometry: { type: 'LineString' as const, coordinates: coords },
-				properties: {},
-			};
-		});
+		// Afficher toutes les polylines sur la carte (positions détaillées si disponibles, sinon staticImage)
+		const tripCoords = (t: TripWithCoords): [number, number][] =>
+			t.positions?.length
+				? t.positions.map((p) => [p.longitude, p.latitude] as [number, number])
+				: t.coords.map(([lat, lng]) => [lng, lat] as [number, number]);
+
+		const features = sorted.map((t) => ({
+			type: 'Feature' as const,
+			geometry: { type: 'LineString' as const, coordinates: tripCoords(t) },
+			properties: {},
+		}));
 		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
 			type: 'FeatureCollection',
 			features,
@@ -3626,6 +3628,24 @@ export class Map {
 
 			this.selectedTripForPanel.set(mergedTrip);
 			this.selectedTripPositions.set(mergedPositions.length ? mergedPositions : []);
+
+			// Remettre à jour les polylignes avec les vraies positions maintenant chargées
+			if (mergedPositions.length && this.map?.getSource('trip-line')) {
+				const updatedFeatures = sorted.map((t) => ({
+					type: 'Feature' as const,
+					geometry: {
+						type: 'LineString' as const,
+						coordinates: t.positions?.length
+							? t.positions.map((p) => [p.longitude, p.latitude] as [number, number])
+							: t.coords.map(([lat, lng]) => [lng, lat] as [number, number]),
+					},
+					properties: {},
+				}));
+				(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
+					type: 'FeatureCollection',
+					features: updatedFeatures,
+				});
+			}
 		});
 	}
 
