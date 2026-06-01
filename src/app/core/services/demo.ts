@@ -776,6 +776,145 @@ const ROUTES: { start: string; end: string; date: string; waypoints: [number, nu
 			[54.42, -4.39], // Ramsey
 		],
 	},
+	// BB — Écosse 1 🏴󠁧󠁢󠁳󠁣󠁴󠁿 (depuis Newcastle)
+	{
+		start: 'Newcastle',
+		end: 'Edinburgh',
+		date: '2025-09-01',
+		waypoints: [
+			[54.97, -1.61], // Newcastle
+			[55.95, -3.19], // Edinburgh
+		],
+	},
+	// CC — Écosse 2 🏴󠁧󠁢󠁳󠁣󠁴󠁿 (remontée nord)
+	{
+		start: 'Edinburgh',
+		end: 'Inverness',
+		date: '2025-09-02',
+		waypoints: [
+			[55.95, -3.19], // Edinburgh
+			[56.4, -3.44], // Perth
+			[57.48, -4.22], // Inverness
+		],
+	},
+	// DD — Pays de Galles 🏴󠁧󠁢󠁷󠁬󠁳󠁿 (depuis Bristol)
+	{
+		start: 'Bristol',
+		end: 'Cardiff',
+		date: '2025-09-10',
+		waypoints: [
+			[51.45, -2.6], // Bristol
+			[51.48, -3.18], // Cardiff
+		],
+	},
+	// T — Croatie 🇭🇷 (depuis Ljubljana)
+	{
+		start: 'Ljubljana',
+		end: 'Zagreb',
+		date: '2025-09-20',
+		waypoints: [
+			[46.05, 14.51], // Ljubljana
+			[45.81, 15.97], // Zagreb
+		],
+	},
+	// U — Hongrie 🇭🇺 (depuis Zagreb)
+	{
+		start: 'Zagreb',
+		end: 'Budapest',
+		date: '2025-09-21',
+		waypoints: [
+			[45.81, 15.97], // Zagreb
+			[46.55, 16.37], // Varaždin (HR)
+			[47.5, 19.04], // Budapest
+		],
+	},
+	// V — Roumanie 🇷🇴 (depuis Budapest)
+	{
+		start: 'Budapest',
+		end: 'Bucharest',
+		date: '2025-10-05',
+		waypoints: [
+			[47.5, 19.04], // Budapest
+			[46.77, 23.59], // Cluj-Napoca
+			[44.43, 26.1], // Bucharest
+		],
+	},
+	// W — Grèce 🇬🇷 (depuis Bucharest via Bulgarie)
+	{
+		start: 'Bucharest',
+		end: 'Thessaloniki',
+		date: '2025-10-20',
+		waypoints: [
+			[44.43, 26.1], // Bucharest
+			[42.15, 24.75], // Plovdiv (BG)
+			[40.64, 22.94], // Thessaloniki
+		],
+	},
+	// X — République tchèque 🇨🇿 (depuis Freiburg)
+	{
+		start: 'Freiburg',
+		end: 'Prague',
+		date: '2025-11-01',
+		waypoints: [
+			[47.99, 7.85], // Freiburg
+			[48.14, 11.58], // Munich
+			[50.08, 14.43], // Prague
+		],
+	},
+	// Y — Danemark 🇩🇰 (depuis Amsterdam)
+	{
+		start: 'Amsterdam',
+		end: 'Copenhagen',
+		date: '2025-11-10',
+		waypoints: [
+			[52.37, 4.89], // Amsterdam
+			[53.55, 10.0], // Hamburg
+			[55.68, 12.57], // Copenhagen
+		],
+	},
+	// Z — Suède 🇸🇪 (depuis Copenhagen)
+	{
+		start: 'Copenhagen',
+		end: 'Gothenburg',
+		date: '2025-11-11',
+		waypoints: [
+			[55.68, 12.57], // Copenhagen
+			[55.61, 13.0], // Malmö
+			[57.71, 11.97], // Gothenburg
+		],
+	},
+	// AA — Norvège 🇳🇴 (depuis Gothenburg)
+	{
+		start: 'Gothenburg',
+		end: 'Oslo',
+		date: '2025-11-12',
+		waypoints: [
+			[57.71, 11.97], // Gothenburg
+			[59.91, 10.75], // Oslo
+		],
+	},
+	// EE — Tunisie 🇹🇳 (ferry Italie → Tunis)
+	{
+		start: 'Tunis',
+		end: 'Sousse',
+		date: '2026-04-10',
+		waypoints: [
+			[36.8, 10.18], // Tunis
+			[36.4, 10.15], // Zaghouan
+			[35.83, 10.64], // Sousse
+		],
+	},
+	// FF — Islande 🇮🇸 (ferry depuis Danemark)
+	{
+		start: 'Reykjavik',
+		end: 'Akureyri',
+		date: '2026-07-01',
+		waypoints: [
+			[64.13, -21.94], // Reykjavik
+			[64.54, -21.93], // Borgarnes
+			[65.68, -18.09], // Akureyri
+		],
+	},
 ];
 
 @Injectable({ providedIn: 'root' })
@@ -800,6 +939,18 @@ export class DemoService {
 			{ file: '/geojson/england.geojson', country: 'GB' },
 			{ file: '/geojson/ireland.geojson', country: 'IE' },
 			{ file: '/geojson/isle-of-man.geojson', country: 'IM' },
+			{ file: '/geojson/scotland.geojson', country: 'SCO' },
+			{ file: '/geojson/wales.geojson', country: 'WAL' },
+			{ file: '/geojson/croatia.geojson', country: 'HR' },
+			{ file: '/geojson/denmark.geojson', country: 'DK' },
+			{ file: '/geojson/sweden.geojson', country: 'SE' },
+			{ file: '/geojson/norway.geojson', country: 'NO' },
+			{ file: '/geojson/czechia.geojson', country: 'CZ' },
+			{ file: '/geojson/hungary.geojson', country: 'HU' },
+			{ file: '/geojson/romania.geojson', country: 'RO' },
+			{ file: '/geojson/greece.geojson', country: 'GR' },
+			{ file: '/geojson/tunisia.geojson', country: 'TN' },
+			{ file: '/geojson/iceland.geojson', country: 'IS' },
 		];
 		return forkJoin(COUNTRY_LOADS.map((c) => this.http.get<GeoJSON.FeatureCollection>(c.file))).pipe(
 			map((collections) => ({
