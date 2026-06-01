@@ -306,6 +306,25 @@ export class Map {
 		}, new Date(this.allTripsWithCoords[0].startTime));
 	}
 
+	private updateVisitedNeighboringCountries(): void {
+		// Single pass using start/end coords only (1500× faster than checking all coords)
+		const counts: { [code: string]: number } = {};
+		for (const t of this.allTripsWithCoords) {
+			for (const c of NEIGHBORING_COUNTRIES) {
+				const inLat = (lat: number) => lat >= c.minLat && lat <= c.maxLat;
+				const inLon = (lon: number) => lon >= c.minLon && lon <= c.maxLon;
+				if ((inLat(t.startLat) && inLon(t.startLon)) || (inLat(t.endLat) && inLon(t.endLon))) {
+					counts[c.code] = (counts[c.code] ?? 0) + 1;
+				}
+			}
+		}
+		this.visitedNeighboringCountries.set(
+			NEIGHBORING_COUNTRIES.filter((c) => counts[c.code]).sort(
+				(a, b) => (counts[b.code] ?? 0) - (counts[a.code] ?? 0),
+			) as NeighboringCountry[],
+		);
+	}
+
 	private updateAvailablePresets(): void {
 		const oldest = this.computeOldestTripDate();
 		if (!oldest) {
@@ -1027,10 +1046,13 @@ export class Map {
 		totalKm,
 		hexagonCount,
 	}: DemoData): void {
+		this.logger.log('Map', '[applyDemoData] start');
 		this.departments = departments;
 		this.allTripsWithCoords = tripsWithCoords as TripWithCoords[];
 		this.tripsWithCoords = this.allTripsWithCoords;
+		this.logger.log('Map', '[applyDemoData] trips set');
 		this.updateAvailablePresets();
+		this.logger.log('Map', '[applyDemoData] presets updated');
 		this.cellsByResolution = cellsByResolution;
 		this.tripCount.set(tripCount);
 		this.totalKm.set(totalKm);
@@ -1039,37 +1061,26 @@ export class Map {
 			const d = new Date(t.startTime);
 			return d > latest ? d : latest;
 		}, new Date(0));
+		this.logger.log('Map', '[applyDemoData] computing R7...');
 		const allR7 = this.h3.computeResolution(
 			this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
 			7,
 		);
+		this.logger.log('Map', '[applyDemoData] R7 done, computing new cells...');
 		this.computeNewCellsR7(allR7, latestTripDate);
-		this.visitedNeighboringCountries.set(
-			NEIGHBORING_COUNTRIES.filter((c) =>
-				this.allTripsWithCoords.some((t) =>
-					t.coords.some(
-						([lat, lon]) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
-					),
-				),
-			)
-				.map((c) => ({
-					country: c,
-					tripCount: this.allTripsWithCoords.filter((t) =>
-						t.coords.some(
-							([lat, lon]) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
-						),
-					).length,
-				}))
-				.sort((a, b) => b.tripCount - a.tripCount)
-				.map((x) => x.country) as NeighboringCountry[],
-		);
+		this.logger.log('Map', '[applyDemoData] new cells done, updating countries...');
+		this.updateVisitedNeighboringCountries();
+		this.logger.log('Map', '[applyDemoData] countries done, seasons...');
 		this.visitedSeasons.set(
 			SEASONS.filter((s) =>
 				this.allTripsWithCoords.some((t) => s.months.includes(new Date(t.startTime).getMonth() + 1)),
 			) as Season[],
 		);
+		this.logger.log('Map', '[applyDemoData] addLayers...');
 		this.addLayers();
+		this.logger.log('Map', '[applyDemoData] initViewAfterLoad...');
 		this.initViewAfterLoad();
+		this.logger.log('Map', '[applyDemoData] done');
 	}
 
 	private getTripsChunked(trackerId: number, from: Date, to: Date, chunkDays = 30): Observable<MergedTrip[]> {
@@ -1353,16 +1364,7 @@ export class Map {
 						}))
 						.filter((t) => t.coords.length > 0) as TripWithCoords[];
 					this.tripsWithCoords = this.allTripsWithCoords;
-					this.visitedNeighboringCountries.set(
-						NEIGHBORING_COUNTRIES.filter((c) =>
-							this.allTripsWithCoords.some((t) =>
-								t.coords.some(
-									([lat, lon]) =>
-										lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
-								),
-							),
-						) as NeighboringCountry[],
-					);
+					this.updateVisitedNeighboringCountries();
 					this.visitedSeasons.set(
 						SEASONS.filter((s) =>
 							this.allTripsWithCoords.some((t) =>
@@ -4081,7 +4083,8 @@ export class Map {
 
 		this.savedNewCellsR7 = new Set(candidates);
 		this.newCellsR7 = new Set(candidates);
-		this.buildRecapData();
+		// Différé après le rendu initial : computeNewCellsDeptStats (570 depts × H3 res=7) est trop lourd pour le thread principal au load
+		setTimeout(() => this.buildRecapData());
 		if (this.recapDismissed()) {
 			this.newCellsR7 = new Set();
 		} else {

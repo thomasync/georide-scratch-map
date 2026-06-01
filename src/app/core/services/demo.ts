@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { forkJoin, map, Observable } from 'rxjs';
+import { asyncScheduler, forkJoin, map, Observable, observeOn } from 'rxjs';
 import { ANDORRA_FEATURE } from '../data/andorra';
 import { LUXEMBOURG_FEATURES } from '../data/luxembourg';
 import { H3Data, H3Resolution, H3Service } from './h3';
@@ -66,6 +66,8 @@ export class DemoService {
 			...COUNTRY_LOADS.map((c) => this.http.get<GeoJSON.FeatureCollection>(c.file)),
 			this.http.get<DemoTripData[]>('/demo-trips.json'),
 		]).pipe(
+			// Tick 1 : buildTrip × 119 + construction du FeatureCollection departments
+			observeOn(asyncScheduler),
 			map((results) => {
 				const demoTrips = results.pop() as DemoTripData[];
 				const collections = results as GeoJSON.FeatureCollection[];
@@ -84,6 +86,11 @@ export class DemoService {
 					],
 				};
 				const tripsWithCoords = demoTrips.map((route, i) => this.buildTrip(route, i));
+				return { departments, tripsWithCoords };
+			}),
+			// Tick 2 : computeResolution H3 res=6 (séparé pour libérer le thread entre les deux)
+			observeOn(asyncScheduler),
+			map(({ departments, tripsWithCoords }) => {
 				const tripData = tripsWithCoords.map((t) => ({
 					coords: t.coords,
 					date: t.startTime.substring(0, 10),
@@ -147,14 +154,7 @@ export class DemoService {
 			k === 0 || k === NUM_KEYS ? 90 : 90 + (rand() - 0.5) * 28,
 		);
 
-		// Échantillonnage 1/10 pour les positions (graphiques + pauses) — le panneau rééchantillonne de toute façon
-		const POS_STEP = 10;
-		const sampledIndices = coords.reduce<number[]>((acc, _, idx) => {
-			if (idx % POS_STEP === 0 || idx === coords.length - 1) acc.push(idx);
-			return acc;
-		}, []);
-		const positions: GeoRidePosition[] = sampledIndices.map((idx) => {
-			const [lat, lon] = coords[idx];
+		const positions: GeoRidePosition[] = coords.map(([lat, lon], idx) => {
 			const t = idx / Math.max(coords.length - 1, 1);
 			const seg = Math.min(Math.floor(t * NUM_KEYS), NUM_KEYS - 1);
 			const st = t * NUM_KEYS - seg;

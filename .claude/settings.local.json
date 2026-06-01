@@ -19,7 +19,10 @@
       "Bash(npx ng *)",
       "Bash(python3 -c ' *)",
       "Bash(tail -3 /tmp/osrm_progress.txt)",
-      "Read(//private/tmp/**)"
+      "Read(//private/tmp/**)",
+      "mcp__chrome-devtools__list_console_messages",
+      "Read(//Users/thomasync/Downloads/**)",
+      "Bash(sort -t',' -k2 -rn)"
     ]
   }
 }
