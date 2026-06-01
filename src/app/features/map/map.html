@@ -249,6 +249,13 @@
 						<span class="stat-label">pays</span>
 					</div>
 				}
+				@if (cityCountStat() > 0) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ cityCountStat() }}</span>
+						<span class="stat-label">{{ cityCountStat() === 1 ? 'ville' : 'villes' }}</span>
+					</div>
+				}
 				@if (fullRegionCount() > 0) {
 					<span class="stat-sep">·</span>
 					<div class="stat">

@@ -171,6 +171,7 @@ export class Map {
 	allTripsMaxSpeedKmh = signal(0);
 	allTripsMaxDistanceKm = signal(0);
 	countryCountStat = signal(1);
+	cityCountStat = signal(0);
 	error = signal('');
 	zoom = signal(0);
 	isDevMode = isDevMode();
@@ -339,6 +340,7 @@ export class Map {
 			this.allTripsMaxSpeedKmh.set(0);
 			this.allTripsMaxDistanceKm.set(0);
 			this.countryCountStat.set(0);
+			this.cityCountStat.set(0);
 			return;
 		}
 		// Pays (filtrés)
@@ -353,6 +355,21 @@ export class Map {
 			}
 		}
 		this.countryCountStat.set(countryCodes.size + 1); // +1 France
+		// Villes visitées (points d'arrivée uniques, hors ville de départ habituelle)
+		const startCityCount: Record<string, number> = {};
+		for (const t of trips) {
+			const city = this.extractCity(t.niceStartAddress ?? t.startAddress);
+			if (city) startCityCount[city] = (startCityCount[city] ?? 0) + 1;
+		}
+		const homeCity = Object.entries(startCityCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+		const uniqueCities = new Set<string>();
+		for (const t of trips) {
+			const startCity = this.extractCity(t.niceStartAddress ?? t.startAddress);
+			const endCity = this.extractCity(t.niceEndAddress ?? t.endAddress);
+			if (!endCity || endCity === startCity || endCity === homeCity) continue;
+			uniqueCities.add(endCity);
+		}
+		this.cityCountStat.set(uniqueCities.size);
 		// Streak
 		const days = new Set(trips.map((t) => t.startTime.substring(0, 10)));
 		let streakCount = 0;
