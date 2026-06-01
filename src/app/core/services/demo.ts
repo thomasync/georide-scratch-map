@@ -2,6 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { catchError, forkJoin, map, Observable, of, switchMap } from 'rxjs';
 import { ANDORRA_FEATURE } from '../data/andorra';
+import { LUXEMBOURG_FEATURES } from '../data/luxembourg';
 import { H3Data, H3Resolution, H3Service } from './h3';
 import { Trip } from '../models/trip';
 import { GeoRidePosition } from './georide-api';
@@ -713,6 +714,68 @@ const ROUTES: { start: string; end: string; date: string; waypoints: [number, nu
 			[31.63, -8.0], // Marrakech, Maroc
 		],
 	},
+	// N — Angleterre 1 🏴󠁧󠁢󠁥󠁮󠁧󠁿 (Eurotunnel → remontée vers le nord)
+	{
+		start: 'Dover',
+		end: 'Newcastle',
+		date: '2025-07-10',
+		waypoints: [
+			[51.13, 1.31], // Dover, South East
+			[51.51, -0.13], // London
+			[52.48, -1.9], // Birmingham, West Midlands
+			[53.48, -2.24], // Manchester, North West
+			[54.97, -1.61], // Newcastle, North East
+		],
+	},
+	// O — Angleterre 2 🏴󠁧󠁢󠁥󠁮󠁧󠁿 (boucle couvrant les régions restantes)
+	{
+		start: 'Bristol',
+		end: 'Leeds',
+		date: '2025-07-17',
+		waypoints: [
+			[51.45, -2.6], // Bristol, South West
+			[52.95, -1.14], // Nottingham, East Midlands
+			[52.2, 0.12], // Cambridge, East of England
+			[53.8, -1.55], // Leeds, Yorkshire
+		],
+	},
+	// Q — Irlande 1 🇮🇪 (départ Dublin, descente vers le sud-ouest)
+	{
+		start: 'Dublin',
+		end: 'Galway',
+		date: '2025-08-04',
+		waypoints: [
+			[53.33, -6.25], // Dublin
+			[52.26, -7.11], // Waterford, South-East
+			[51.9, -8.47], // Cork, South-West
+			[52.67, -8.63], // Limerick, Mid-West
+			[53.27, -9.05], // Galway, West
+		],
+	},
+	// R — Irlande 2 🇮🇪 (remontée vers le nord)
+	{
+		start: 'Galway',
+		end: 'Donegal',
+		date: '2025-08-05',
+		waypoints: [
+			[53.27, -9.05], // Galway, West
+			[53.43, -7.94], // Athlone, Midland
+			[54.27, -8.47], // Sligo, Border
+			[54.65, -8.12], // Donegal, Border
+		],
+	},
+	// S — Île de Man 🇮🇲 (ferry depuis Liverpool)
+	{
+		start: 'Douglas',
+		end: 'Ramsey',
+		date: '2025-08-12',
+		waypoints: [
+			[54.15, -4.49], // Douglas (capitale)
+			[54.25, -4.51], // St John's
+			[54.32, -4.39], // Kirk Michael
+			[54.42, -4.39], // Ramsey
+		],
+	},
 ];
 
 @Injectable({ providedIn: 'root' })
@@ -721,16 +784,36 @@ export class DemoService {
 	private h3 = inject(H3Service);
 
 	load(): Observable<DemoData> {
-		return forkJoin([
-			this.http.get<GeoJSON.FeatureCollection>('/france.geojson'),
-			this.http.get<GeoJSON.FeatureCollection>('/spain.geojson'),
-		]).pipe(
-			map(([france, spain]) => ({
+		const COUNTRY_LOADS: { file: string; country: string; forceCountry?: boolean }[] = [
+			{ file: '/geojson/france.geojson', country: 'FR', forceCountry: true },
+			{ file: '/geojson/spain.geojson', country: 'ES' },
+			{ file: '/geojson/italy.geojson', country: 'IT' },
+			{ file: '/geojson/portugal.geojson', country: 'PT' },
+			{ file: '/geojson/belgium.geojson', country: 'BE' },
+			{ file: '/geojson/netherlands.geojson', country: 'NL' },
+			{ file: '/geojson/germany.geojson', country: 'DE' },
+			{ file: '/geojson/switzerland.geojson', country: 'CH' },
+			{ file: '/geojson/liechtenstein.geojson', country: 'LI' },
+			{ file: '/geojson/austria.geojson', country: 'AT' },
+			{ file: '/geojson/slovenia.geojson', country: 'SI' },
+			{ file: '/geojson/morocco.geojson', country: 'MA' },
+			{ file: '/geojson/england.geojson', country: 'GB' },
+			{ file: '/geojson/ireland.geojson', country: 'IE' },
+			{ file: '/geojson/isle-of-man.geojson', country: 'IM' },
+		];
+		return forkJoin(COUNTRY_LOADS.map((c) => this.http.get<GeoJSON.FeatureCollection>(c.file))).pipe(
+			map((collections) => ({
 				type: 'FeatureCollection' as const,
 				features: [
-					...france.features.map((f) => ({ ...f, properties: { ...f.properties, country: 'FR' } })),
-					...spain.features,
+					...collections.flatMap((fc, i) => {
+						const c = COUNTRY_LOADS[i];
+						return fc.features.map((f) => ({
+							...f,
+							properties: c.forceCountry ? { ...f.properties, country: c.country } : f.properties,
+						}));
+					}),
 					ANDORRA_FEATURE,
+					...LUXEMBOURG_FEATURES.features,
 				],
 			})),
 			switchMap((departments) =>

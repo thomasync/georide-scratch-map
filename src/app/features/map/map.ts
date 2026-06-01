@@ -27,6 +27,7 @@ import { DatabaseService, StoredTrip } from '../../core/services/database';
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
 import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
+import { LUXEMBOURG_FEATURES } from '../../core/data/luxembourg';
 import { DevBoxComponent } from './dev-box';
 import { StatsModalComponent, StatsModalData } from './stats-modal';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
@@ -91,6 +92,9 @@ const NEIGHBORING_COUNTRIES = [
 	{ code: 'MC', name: 'Monaco', flag: '🇲🇨', minLat: 43.72, maxLat: 43.78, minLon: 7.37, maxLon: 7.44 },
 	{ code: 'SI', name: 'Slovénie', flag: '🇸🇮', minLat: 45.4, maxLat: 46.9, minLon: 13.4, maxLon: 16.6 },
 	{ code: 'MA', name: 'Maroc', flag: '🇲🇦', minLat: 27.7, maxLat: 35.9, minLon: -13.2, maxLon: -1.0 },
+	{ code: 'GB', name: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', minLat: 49.9, maxLat: 55.8, minLon: -5.7, maxLon: 1.8 },
+	{ code: 'IE', name: 'Irlande', flag: '🇮🇪', minLat: 51.4, maxLat: 55.4, minLon: -10.5, maxLon: -5.9 },
+	{ code: 'IM', name: 'Île de Man', flag: '🇮🇲', minLat: 54.0, maxLat: 54.5, minLon: -4.85, maxLon: -4.3 },
 ] as const;
 type NeighboringCountry = (typeof NEIGHBORING_COUNTRIES)[number];
 
@@ -153,7 +157,14 @@ export class Map {
 	error = signal('');
 	zoom = signal(0);
 	isDevMode = isDevMode();
-	focusStats = signal<{ trips: number; km: number; hex: number; pct: number; name?: string } | null>(null);
+	focusStats = signal<{
+		trips: number;
+		km: number;
+		hex: number;
+		pct: number;
+		name?: string;
+		countryName?: string;
+	} | null>(null);
 	dateFilter = signal<DateFilterPreset>('all');
 	customFrom = signal('');
 	customTo = signal('');
@@ -1038,8 +1049,77 @@ export class Map {
 		}
 
 		const COUNTRY_FILES = [
-			{ country: 'FR', file: '/france.geojson', minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 },
-			{ country: 'ES', file: '/spain.geojson', minLat: 27.6, maxLat: 43.8, minLon: -18.2, maxLon: 4.4 },
+			{ country: 'FR', file: '/geojson/france.geojson', minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 },
+			{ country: 'ES', file: '/geojson/spain.geojson', minLat: 27.6, maxLat: 43.8, minLon: -18.2, maxLon: 4.4 },
+			{ country: 'IT', file: '/geojson/italy.geojson', minLat: 35.5, maxLat: 47.1, minLon: 6.6, maxLon: 18.5 },
+			{
+				country: 'PT',
+				file: '/geojson/portugal.geojson',
+				minLat: 29.0,
+				maxLat: 42.2,
+				minLon: -31.5,
+				maxLon: -6.2,
+			},
+			{ country: 'BE', file: '/geojson/belgium.geojson', minLat: 49.5, maxLat: 51.5, minLon: 2.5, maxLon: 6.4 },
+			{
+				country: 'NL',
+				file: '/geojson/netherlands.geojson',
+				minLat: 50.7,
+				maxLat: 53.7,
+				minLon: 3.3,
+				maxLon: 7.3,
+			},
+			{ country: 'DE', file: '/geojson/germany.geojson', minLat: 47.3, maxLat: 55.1, minLon: 5.9, maxLon: 15.0 },
+			{
+				country: 'CH',
+				file: '/geojson/switzerland.geojson',
+				minLat: 45.8,
+				maxLat: 47.9,
+				minLon: 5.9,
+				maxLon: 10.5,
+			},
+			{
+				country: 'LI',
+				file: '/geojson/liechtenstein.geojson',
+				minLat: 47.0,
+				maxLat: 47.3,
+				minLon: 9.4,
+				maxLon: 9.7,
+			},
+			{ country: 'AT', file: '/geojson/austria.geojson', minLat: 46.4, maxLat: 49.0, minLon: 9.5, maxLon: 17.2 },
+			{
+				country: 'SI',
+				file: '/geojson/slovenia.geojson',
+				minLat: 45.4,
+				maxLat: 46.9,
+				minLon: 13.4,
+				maxLon: 16.6,
+			},
+			{
+				country: 'MA',
+				file: '/geojson/morocco.geojson',
+				minLat: 21.4,
+				maxLat: 36.0,
+				minLon: -17.1,
+				maxLon: -1.0,
+			},
+			{ country: 'GB', file: '/geojson/england.geojson', minLat: 49.9, maxLat: 55.8, minLon: -5.7, maxLon: 1.8 },
+			{
+				country: 'IE',
+				file: '/geojson/ireland.geojson',
+				minLat: 51.4,
+				maxLat: 55.4,
+				minLon: -10.5,
+				maxLon: -5.9,
+			},
+			{
+				country: 'IM',
+				file: '/geojson/isle-of-man.geojson',
+				minLat: 54.0,
+				maxLat: 54.5,
+				minLon: -4.85,
+				maxLon: -4.3,
+			},
 		];
 
 		forkJoin([
@@ -1117,14 +1197,28 @@ export class Map {
 							(t.startLat >= 42.42 && t.startLat <= 42.66 && t.startLon >= 1.4 && t.startLon <= 1.8) ||
 							(t.endLat >= 42.42 && t.endLat <= 42.66 && t.endLon >= 1.4 && t.endLon <= 1.8),
 					);
-					const log = [...needed.map((c) => c.country), ...(hasAndorra ? ['AD'] : [])];
+					const hasLuxembourg = allTrips.some(
+						(t) =>
+							(t.startLat >= 49.4 && t.startLat <= 50.2 && t.startLon >= 5.7 && t.startLon <= 6.5) ||
+							(t.endLat >= 49.4 && t.endLat <= 50.2 && t.endLon >= 5.7 && t.endLon <= 6.5),
+					);
+					const inlineFeatures = [
+						...(hasAndorra ? [ANDORRA_FEATURE] : []),
+						...(hasLuxembourg ? LUXEMBOURG_FEATURES.features : []),
+					];
+					const log = [
+						...needed.map((c) => c.country),
+						...(hasAndorra ? ['AD'] : []),
+						...(hasLuxembourg ? ['LU'] : []),
+					];
 					this.logger.log('Map', `loading GeoJSON for: ${log.join(', ') || 'none'}`);
 					if (needed.length === 0)
 						return of({
 							allTrips,
-							departments: hasAndorra
-								? { type: 'FeatureCollection' as const, features: [ANDORRA_FEATURE] }
-								: null,
+							departments:
+								inlineFeatures.length > 0
+									? { type: 'FeatureCollection' as const, features: inlineFeatures }
+									: null,
 						});
 					return forkJoin(
 						needed.map((c) =>
@@ -1143,10 +1237,7 @@ export class Map {
 							allTrips,
 							departments: {
 								type: 'FeatureCollection' as const,
-								features: [
-									...collections.flatMap((c) => c.features),
-									...(hasAndorra ? [ANDORRA_FEATURE] : []),
-								],
+								features: [...collections.flatMap((c) => c.features), ...inlineFeatures],
 							} as GeoJSON.FeatureCollection,
 						})),
 						catchError(() => {
@@ -1936,8 +2027,30 @@ export class Map {
 
 			if (mode === 'dept') this.clearTripLine(true);
 
-			for (const id of ['overlay-fill', 'heatmap-fill', 'depts-line']) {
+			for (const id of ['overlay-fill', 'heatmap-fill']) {
 				if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', hexVisible);
+			}
+			const lineVisible: 'visible' | 'none' =
+				mode === 'hex' || mode === 'polyline' || mode === 'dept' ? 'visible' : 'none';
+			if (this.map.getLayer('depts-line')) this.map.setLayoutProperty('depts-line', 'visibility', lineVisible);
+			const deptsOutlineSource = this.map.getSource('depts-outline') as maplibregl.GeoJSONSource | undefined;
+			if (deptsOutlineSource) {
+				if (mode === 'dept' && this.enrichedDepts) {
+					const visitedCountries = new Set<string>();
+					for (const f of this.enrichedDepts.features) {
+						if ((f.properties?.['pct'] ?? 0) > 0) {
+							visitedCountries.add((f.properties?.['country'] as string | undefined) ?? 'FR');
+						}
+					}
+					deptsOutlineSource.setData({
+						type: 'FeatureCollection',
+						features: this.enrichedDepts.features.filter((f) =>
+							visitedCountries.has((f.properties?.['country'] as string | undefined) ?? 'FR'),
+						),
+					});
+				} else if (mode !== 'dept' && this.departments) {
+					deptsOutlineSource.setData(this.departments);
+				}
 			}
 			for (const id of ['depts-overlay-fill', 'depts-fill', 'depts-hover', 'depts-labels']) {
 				if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', deptVisible);
@@ -2064,17 +2177,19 @@ export class Map {
 		};
 		const overlayData = this.h3.departmentsToWorldOverlay(visitedDepts);
 
-		// Label points (centroid of each visited dept)
+		// Label points — sorted by h3Total desc so larger regions win collision detection
 		const labelData: GeoJSON.FeatureCollection<GeoJSON.Point> = {
 			type: 'FeatureCollection',
-			features: visitedDepts.features.map((f) => ({
-				type: 'Feature' as const,
-				geometry: {
-					type: 'Point' as const,
-					coordinates: this.getDeptCentroid(f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon),
-				},
-				properties: f.properties,
-			})),
+			features: [...visitedDepts.features]
+				.sort((a, b) => (b.properties?.['h3Total'] ?? 0) - (a.properties?.['h3Total'] ?? 0))
+				.map((f) => ({
+					type: 'Feature' as const,
+					geometry: {
+						type: 'Point' as const,
+						coordinates: this.getDeptCentroid(f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon),
+					},
+					properties: f.properties,
+				})),
 		};
 
 		if (!this.map.getSource('depts-overlay')) {
@@ -2083,7 +2198,7 @@ export class Map {
 				id: 'depts-overlay-fill',
 				type: 'fill',
 				source: 'depts-overlay',
-				paint: { 'fill-color': '#fdb300', 'fill-opacity': 0.55 },
+				paint: { 'fill-color': '#fdb300', 'fill-opacity': 0.55, 'fill-antialias': false },
 				layout: { visibility: 'none' },
 			});
 		} else {
@@ -2103,6 +2218,7 @@ export class Map {
 				paint: {
 					'fill-color': '#fdb300',
 					'fill-opacity': ['interpolate', ['linear'], ['get', 'pct'], 0, 0, 1, 0.55, 100, 0],
+					'fill-antialias': false,
 				},
 				layout: { visibility: 'none' },
 			});
@@ -2182,8 +2298,8 @@ export class Map {
 							],
 					'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
 					'text-anchor': 'center',
-					'text-allow-overlap': true,
-					'text-ignore-placement': true,
+					'text-allow-overlap': false,
+					'text-ignore-placement': false,
 					visibility: 'none',
 				},
 				paint: {
@@ -2689,12 +2805,18 @@ export class Map {
 			for (const idx of data.cellToIndices[c] ?? []) tripIndices.add(idx);
 		}
 		const km = Math.round([...tripIndices].reduce((s, i) => s + this.tripsWithCoords[i].distance, 0) / 1000);
+		const featureProps = feature.properties as Record<string, unknown>;
+		const countryCode = featureProps?.['country'] as string | undefined;
+		const countryName = countryCode
+			? (NEIGHBORING_COUNTRIES.find((c) => c.code === countryCode)?.name ?? countryCode)
+			: 'France';
 		this.focusStats.set({
 			trips: tripIndices.size,
 			km,
 			hex: props?.h3Visited ?? deptCells.filter((c) => data.counts[c] !== undefined).length,
 			pct: props?.pct ?? 0,
-			name: (feature.properties as Record<string, unknown>)?.['nom'] as string | undefined,
+			name: featureProps?.['nom'] as string | undefined,
+			countryName,
 		});
 	}
 
