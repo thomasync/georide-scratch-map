@@ -1,8 +1,9 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { asyncScheduler, forkJoin, map, Observable, observeOn } from 'rxjs';
+import { asyncScheduler, catchError, concat, forkJoin, map, Observable, observeOn, of, switchMap, tap } from 'rxjs';
 import { ANDORRA_FEATURE } from '../data/andorra';
 import { LUXEMBOURG_FEATURES } from '../data/luxembourg';
+import { LoggerService } from './logger';
 import { H3Data, H3Resolution, H3Service } from './h3';
 import { Trip } from '../models/trip';
 import { GeoRidePosition } from './georide-api';
@@ -31,79 +32,214 @@ export interface DemoData {
 export class DemoService {
 	private http = inject(HttpClient);
 	private h3 = inject(H3Service);
+	private logger = new LoggerService();
 
 	load(): Observable<DemoData> {
-		const COUNTRY_LOADS: { file: string; country: string; forceCountry?: boolean }[] = [
-			{ file: '/geojson/france.geojson', country: 'FR', forceCountry: true },
-			{ file: '/geojson/spain.geojson', country: 'ES' },
-			{ file: '/geojson/italy.geojson', country: 'IT' },
-			{ file: '/geojson/portugal.geojson', country: 'PT' },
-			{ file: '/geojson/belgium.geojson', country: 'BE' },
-			{ file: '/geojson/netherlands.geojson', country: 'NL' },
-			{ file: '/geojson/germany.geojson', country: 'DE' },
-			{ file: '/geojson/switzerland.geojson', country: 'CH' },
-			{ file: '/geojson/liechtenstein.geojson', country: 'LI' },
-			{ file: '/geojson/austria.geojson', country: 'AT' },
-			{ file: '/geojson/slovenia.geojson', country: 'SI' },
-			{ file: '/geojson/morocco.geojson', country: 'MA' },
-			{ file: '/geojson/england.geojson', country: 'GB' },
-			{ file: '/geojson/ireland.geojson', country: 'IE' },
-			{ file: '/geojson/isle-of-man.geojson', country: 'IM' },
-			{ file: '/geojson/scotland.geojson', country: 'SCO' },
-			{ file: '/geojson/wales.geojson', country: 'WAL' },
-			{ file: '/geojson/croatia.geojson', country: 'HR' },
-			{ file: '/geojson/denmark.geojson', country: 'DK' },
-			{ file: '/geojson/sweden.geojson', country: 'SE' },
-			{ file: '/geojson/norway.geojson', country: 'NO' },
-			{ file: '/geojson/czechia.geojson', country: 'CZ' },
-			{ file: '/geojson/hungary.geojson', country: 'HU' },
-			{ file: '/geojson/romania.geojson', country: 'RO' },
-			{ file: '/geojson/greece.geojson', country: 'GR' },
-			{ file: '/geojson/tunisia.geojson', country: 'TN' },
-			{ file: '/geojson/iceland.geojson', country: 'IS' },
+		const ALL_COUNTRY_LOADS: {
+			file: string;
+			country: string;
+			forceCountry?: boolean;
+			minLat: number;
+			maxLat: number;
+			minLon: number;
+			maxLon: number;
+		}[] = [
+			{
+				file: '/geojson/france.geojson',
+				country: 'FR',
+				forceCountry: true,
+				minLat: 41.3,
+				maxLat: 51.2,
+				minLon: -5.2,
+				maxLon: 9.6,
+			},
+			{ file: '/geojson/spain.geojson', country: 'ES', minLat: 27.6, maxLat: 43.8, minLon: -18.2, maxLon: 4.4 },
+			{ file: '/geojson/italy.geojson', country: 'IT', minLat: 35.5, maxLat: 47.1, minLon: 6.6, maxLon: 18.5 },
+			{
+				file: '/geojson/portugal.geojson',
+				country: 'PT',
+				minLat: 29.0,
+				maxLat: 42.2,
+				minLon: -31.5,
+				maxLon: -6.2,
+			},
+			{ file: '/geojson/belgium.geojson', country: 'BE', minLat: 49.5, maxLat: 51.5, minLon: 2.5, maxLon: 6.4 },
+			{
+				file: '/geojson/netherlands.geojson',
+				country: 'NL',
+				minLat: 50.7,
+				maxLat: 53.7,
+				minLon: 3.3,
+				maxLon: 7.3,
+			},
+			{ file: '/geojson/germany.geojson', country: 'DE', minLat: 47.3, maxLat: 55.1, minLon: 5.9, maxLon: 15.0 },
+			{
+				file: '/geojson/switzerland.geojson',
+				country: 'CH',
+				minLat: 45.8,
+				maxLat: 47.9,
+				minLon: 5.9,
+				maxLon: 10.5,
+			},
+			{
+				file: '/geojson/liechtenstein.geojson',
+				country: 'LI',
+				minLat: 47.0,
+				maxLat: 47.3,
+				minLon: 9.4,
+				maxLon: 9.7,
+			},
+			{ file: '/geojson/austria.geojson', country: 'AT', minLat: 46.4, maxLat: 49.0, minLon: 9.5, maxLon: 17.2 },
+			{
+				file: '/geojson/slovenia.geojson',
+				country: 'SI',
+				minLat: 45.4,
+				maxLat: 46.9,
+				minLon: 13.4,
+				maxLon: 16.6,
+			},
+			{
+				file: '/geojson/morocco.geojson',
+				country: 'MA',
+				minLat: 21.4,
+				maxLat: 36.0,
+				minLon: -17.1,
+				maxLon: -1.0,
+			},
+			{ file: '/geojson/england.geojson', country: 'GB', minLat: 49.9, maxLat: 55.8, minLon: -5.7, maxLon: 1.8 },
+			{
+				file: '/geojson/ireland.geojson',
+				country: 'IE',
+				minLat: 51.4,
+				maxLat: 55.4,
+				minLon: -10.5,
+				maxLon: -5.9,
+			},
+			{
+				file: '/geojson/isle-of-man.geojson',
+				country: 'IM',
+				minLat: 54.0,
+				maxLat: 54.5,
+				minLon: -4.85,
+				maxLon: -4.3,
+			},
+			{
+				file: '/geojson/scotland.geojson',
+				country: 'SCO',
+				minLat: 54.6,
+				maxLat: 60.9,
+				minLon: -7.6,
+				maxLon: -0.7,
+			},
+			{ file: '/geojson/wales.geojson', country: 'WAL', minLat: 51.3, maxLat: 53.5, minLon: -5.3, maxLon: -2.6 },
+			{ file: '/geojson/croatia.geojson', country: 'HR', minLat: 42.4, maxLat: 46.6, minLon: 13.5, maxLon: 19.5 },
+			{ file: '/geojson/denmark.geojson', country: 'DK', minLat: 54.5, maxLat: 57.8, minLon: 8.0, maxLon: 15.2 },
+			{ file: '/geojson/sweden.geojson', country: 'SE', minLat: 55.3, maxLat: 69.1, minLon: 10.9, maxLon: 24.2 },
+			{ file: '/geojson/norway.geojson', country: 'NO', minLat: 57.9, maxLat: 71.2, minLon: 4.5, maxLon: 31.1 },
+			{ file: '/geojson/czechia.geojson', country: 'CZ', minLat: 48.5, maxLat: 51.1, minLon: 12.1, maxLon: 18.9 },
+			{ file: '/geojson/hungary.geojson', country: 'HU', minLat: 45.7, maxLat: 48.6, minLon: 16.1, maxLon: 22.9 },
+			{ file: '/geojson/romania.geojson', country: 'RO', minLat: 43.6, maxLat: 48.3, minLon: 20.3, maxLon: 29.7 },
+			{ file: '/geojson/greece.geojson', country: 'GR', minLat: 34.8, maxLat: 41.8, minLon: 19.5, maxLon: 28.3 },
+			{ file: '/geojson/tunisia.geojson', country: 'TN', minLat: 30.2, maxLat: 37.5, minLon: 7.5, maxLon: 11.6 },
+			{
+				file: '/geojson/iceland.geojson',
+				country: 'IS',
+				minLat: 63.3,
+				maxLat: 66.6,
+				minLon: -24.5,
+				maxLon: -13.5,
+			},
 		];
-		return forkJoin([
-			...COUNTRY_LOADS.map((c) => this.http.get<GeoJSON.FeatureCollection>(c.file)),
-			this.http.get<DemoTripData[]>('/demo-trips.json'),
-		]).pipe(
-			// Tick 1 : buildTrip × 119 + construction du FeatureCollection departments
-			observeOn(asyncScheduler),
-			map((results) => {
-				const demoTrips = results.pop() as DemoTripData[];
-				const collections = results as GeoJSON.FeatureCollection[];
-				const departments: GeoJSON.FeatureCollection = {
-					type: 'FeatureCollection',
-					features: [
-						...collections.flatMap((fc, i) => {
-							const c = COUNTRY_LOADS[i];
-							return fc.features.map((f) => ({
-								...f,
-								properties: c.forceCountry ? { ...f.properties, country: c.country } : f.properties,
-							}));
-						}),
-						ANDORRA_FEATURE,
-						...LUXEMBOURG_FEATURES.features,
-					],
-				};
-				const tripsWithCoords = demoTrips.map((route, i) => this.buildTrip(route, i));
-				return { departments, tripsWithCoords };
-			}),
-			// Tick 2 : computeResolution H3 res=6 (séparé pour libérer le thread entre les deux)
-			observeOn(asyncScheduler),
-			map(({ departments, tripsWithCoords }) => {
-				const tripData = tripsWithCoords.map((t) => ({
-					coords: t.coords,
-					date: t.startTime.substring(0, 10),
-				}));
-				const h3Data = this.h3.computeResolution(tripData, 6);
-				return {
-					departments,
-					cellsByResolution: { 6: h3Data } as Partial<Record<H3Resolution, H3Data>>,
-					tripsWithCoords,
-					tripCount: tripsWithCoords.length,
-					totalKm: Math.round(tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000),
-					hexagonCount: Object.keys(h3Data.counts).length,
-				};
+
+		const buildDepts = (
+			collections: GeoJSON.FeatureCollection[],
+			loads: (typeof ALL_COUNTRY_LOADS)[number][],
+			extra: GeoJSON.Feature[],
+		): GeoJSON.FeatureCollection => ({
+			type: 'FeatureCollection',
+			features: [
+				...collections.flatMap((fc, i) =>
+					fc.features.map((f) => ({
+						...f,
+						properties: loads[i].forceCountry
+							? { ...f.properties, country: loads[i].country }
+							: f.properties,
+					})),
+				),
+				...extra,
+			],
+		});
+
+		// Charge d'abord les trips pour détecter dynamiquement le pays du dernier trajet
+		return this.http.get<DemoTripData[]>('/demo-trips.json').pipe(
+			switchMap((demoTrips) => {
+				// Dernier trajet = dayOffset le plus bas (le plus récent)
+				const lastTrip = demoTrips.reduce((a, b) => (a.dayOffset <= b.dayOffset ? a : b));
+				const [lat, lon] = lastTrip.coords[0];
+				// Trouver le pays du dernier trajet
+				const primaryLoad =
+					ALL_COUNTRY_LOADS.find(
+						(c) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
+					) ?? ALL_COUNTRY_LOADS[0]; // fallback France
+				const remainingLoads = ALL_COUNTRY_LOADS.filter((c) => c !== primaryLoad);
+				this.logger.log(
+					'Demo',
+					`primary country: ${primaryLoad.country} (last trip at [${lat.toFixed(2)},${lon.toFixed(2)}])`,
+				);
+
+				return forkJoin([this.http.get<GeoJSON.FeatureCollection>(primaryLoad.file), of(demoTrips)]).pipe(
+					observeOn(asyncScheduler),
+					map(([primaryFc]) => {
+						const departments = buildDepts(
+							[primaryFc],
+							[primaryLoad],
+							[ANDORRA_FEATURE, ...LUXEMBOURG_FEATURES.features],
+						);
+						const tripsWithCoords = demoTrips.map((route, i) => this.buildTrip(route, i));
+						return { departments, tripsWithCoords, remainingLoads };
+					}),
+					observeOn(asyncScheduler),
+					map(({ departments, tripsWithCoords, remainingLoads }) => {
+						const tripData = tripsWithCoords.map((t) => ({
+							coords: t.coords,
+							date: t.startTime.substring(0, 10),
+						}));
+						const h3Data = this.h3.computeResolution(tripData, 6);
+						return {
+							initialData: {
+								departments,
+								cellsByResolution: { 6: h3Data } as Partial<Record<H3Resolution, H3Data>>,
+								tripsWithCoords,
+								tripCount: tripsWithCoords.length,
+								totalKm: Math.round(tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000),
+								hexagonCount: Object.keys(h3Data.counts).length,
+							},
+							remainingLoads,
+						};
+					}),
+					switchMap(({ initialData, remainingLoads }) =>
+						concat(
+							of(initialData),
+							forkJoin(
+								remainingLoads.map((c) =>
+									this.http
+										.get<GeoJSON.FeatureCollection>(c.file)
+										.pipe(
+											catchError(() => of({ type: 'FeatureCollection' as const, features: [] })),
+										),
+								),
+							).pipe(
+								tap((fcs) => this.logger.log('Demo', `remaining countries loaded: ${fcs.length}`)),
+								map((remainingFcs) => ({
+									...initialData,
+									departments: buildDepts(remainingFcs, remainingLoads, [
+										...initialData.departments.features,
+									]),
+								})),
+							),
+						),
+					),
+				);
 			}),
 		);
 	}

@@ -622,26 +622,10 @@ export class Map {
 			);
 			return;
 		}
-		// Delta trop grand : zoomer sur le pays le plus visité
-		const FRANCE = { minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 };
-		const inBbox = (t: TripWithCoords, b: { minLat: number; maxLat: number; minLon: number; maxLon: number }) =>
-			t.coords.some(([la, lo]) => la >= b.minLat && la <= b.maxLat && lo >= b.minLon && lo <= b.maxLon);
-		const count = (b: { minLat: number; maxLat: number; minLon: number; maxLon: number }) =>
-			this.tripsWithCoords.filter((t) => inBbox(t, b)).length;
-		const top = this.visitedNeighboringCountries()[0];
-		const duration = animate ? 800 : 0;
-		if (!top || count(FRANCE) >= count(top)) {
-			const z = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
-			this.map.easeTo({ center: [2.3, 46.2], zoom: z, duration });
-		} else {
-			const cam = this.map.cameraForBounds(
-				[
-					[top.minLon, top.minLat],
-					[top.maxLon, top.maxLat],
-				],
-				{ padding: 40 },
-			);
-			if (cam) this.map.easeTo({ ...cam, duration });
+		// Delta trop grand : fitToVisited sur le dernier trajet réalisé avec maxZoom standard
+		const lastTrip = [...this.tripsWithCoords].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];
+		if (lastTrip) {
+			this.fitToVisited([lastTrip.coords], this.mapSettings.fitToVisitedMaxZoom(), speed, animate);
 		}
 	}
 
@@ -1115,8 +1099,29 @@ export class Map {
 		this.logger.log('Map', 'loadData called');
 
 		if (this.isDemo) {
+			let demoInitDone = false;
 			this.demo.load().subscribe({
-				next: (data) => this.applyDemoData(data),
+				next: (data) => {
+					if (!demoInitDone) {
+						demoInitDone = true;
+						this.applyDemoData(data);
+					} else {
+						// 2ème émission : mettre à jour les départements avec tous les pays
+						this.logger.log(
+							'Map',
+							`[demo] all countries loaded: ${data.departments.features.length} depts`,
+						);
+						this.departments = data.departments;
+						this.enrichedDepts = null;
+						this.h3.invalidateEnrichedCache(); // invalide le cache H3 créé avec seulement la France
+						if (this.map?.getSource('depts-outline')) {
+							(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(data.departments);
+						}
+						this.updateVisitedNeighboringCountries();
+						this.currentMode = null;
+						this.updateView();
+					}
+				},
 				error: () => {
 					this.error.set('Impossible de charger les départements');
 					this.loading.set(false);
@@ -1322,36 +1327,53 @@ export class Map {
 								inlineFeatures.length > 0
 									? { type: 'FeatureCollection' as const, features: inlineFeatures }
 									: null,
+							remainingCountries: [] as typeof needed,
 						});
-					return forkJoin(
-						needed.map((c) =>
-							this.http.get<GeoJSON.FeatureCollection>(c.file).pipe(
-								rxMap((fc) => ({
-									...fc,
-									features: fc.features.map((f) => ({
-										...f,
-										properties: { ...f.properties, country: c.country },
-									})),
+
+					// Phase 1 : pays du dernier trajet en premier, reste en phase 2
+					const lastTrip = [...allTrips].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];
+					const primaryFile = lastTrip
+						? (needed.find(
+								(c) =>
+									inBounds(lastTrip.startLat, lastTrip.startLon, c) ||
+									inBounds(lastTrip.endLat, lastTrip.endLon, c),
+							) ?? needed[0])
+						: needed[0];
+					const remainingFiles = needed.filter((c) => c !== primaryFile);
+					this.logger.log(
+						'Map',
+						`primary country: ${primaryFile.country}, remaining: ${remainingFiles.length}`,
+					);
+
+					const loadFc = (c: (typeof needed)[number]) =>
+						this.http.get<GeoJSON.FeatureCollection>(c.file).pipe(
+							rxMap((fc) => ({
+								...fc,
+								features: fc.features.map((f) => ({
+									...f,
+									properties: { ...f.properties, country: c.country },
 								})),
-							),
-						),
-					).pipe(
-						rxMap((collections) => ({
+							})),
+						);
+
+					return loadFc(primaryFile).pipe(
+						rxMap((primaryFc) => ({
 							allTrips,
 							departments: {
 								type: 'FeatureCollection' as const,
-								features: [...collections.flatMap((c) => c.features), ...inlineFeatures],
+								features: [...primaryFc.features, ...inlineFeatures],
 							} as GeoJSON.FeatureCollection,
+							remainingCountries: remainingFiles,
 						})),
 						catchError(() => {
 							this.logger.warn('Map', 'regions not found, dept mode disabled');
-							return of({ allTrips, departments: null });
+							return of({ allTrips, departments: null, remainingCountries: [] as typeof needed });
 						}),
 					);
 				}),
 			)
 			.subscribe({
-				next: ({ allTrips, departments }) => {
+				next: ({ allTrips, departments, remainingCountries }) => {
 					this.departments = departments;
 					this.logger.log('Map', `total trips: ${allTrips.length}`);
 					this.tripCount.set(allTrips.length);
@@ -1400,6 +1422,43 @@ export class Map {
 
 					this.addLayers();
 					this.initViewAfterLoad();
+
+					// Phase 2 : charger les pays restants après que la carte est visible
+					if (remainingCountries?.length) {
+						forkJoin(
+							remainingCountries.map((c) =>
+								this.http.get<GeoJSON.FeatureCollection>(c.file).pipe(
+									rxMap((fc) => ({
+										...fc,
+										features: fc.features.map((f) => ({
+											...f,
+											properties: { ...f.properties, country: c.country },
+										})),
+									})),
+									catchError(() =>
+										of({ type: 'FeatureCollection' as const, features: [] as GeoJSON.Feature[] }),
+									),
+								),
+							),
+						).subscribe((remainingFcs) => {
+							const allFeatures = [
+								...(this.departments?.features ?? []),
+								...remainingFcs.flatMap((fc) => fc.features),
+							];
+							this.departments = { type: 'FeatureCollection', features: allFeatures };
+							this.enrichedDepts = null;
+							this.h3.invalidateEnrichedCache();
+							if (this.map?.getSource('depts-outline')) {
+								(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(
+									this.departments,
+								);
+							}
+							this.updateVisitedNeighboringCountries();
+							this.currentMode = null;
+							this.updateView();
+							this.logger.log('Map', `all countries loaded: ${allFeatures.length} depts`);
+						});
+					}
 
 					// Si les positions ont déjà été chargées (timestamp en IDB),
 					// recharger silencieusement en arrière-plan + invalider les caches de modes
