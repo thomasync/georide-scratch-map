@@ -4,8 +4,9 @@ import { catchError, forkJoin, map, Observable, of, switchMap } from 'rxjs';
 import { ANDORRA_FEATURE } from '../data/andorra';
 import { H3Data, H3Resolution, H3Service } from './h3';
 import { Trip } from '../models/trip';
+import { GeoRidePosition } from './georide-api';
 
-export type DemoTripWithCoords = Trip & { coords: [number, number][] };
+export type DemoTripWithCoords = Trip & { coords: [number, number][]; positions: GeoRidePosition[] };
 
 export interface DemoData {
 	departments: GeoJSON.FeatureCollection;
@@ -627,7 +628,13 @@ export class DemoService {
 		i: number,
 		{ coords, distanceM }: { coords: [number, number][]; distanceM: number },
 	): DemoTripWithCoords {
-		const durationSec = Math.round((distanceM / 1000 / 75) * 3600);
+		// Vitesses variées par trajet pour que la démo soit plus réaliste
+		const avgKmh = 25 + Math.floor(Math.random() * 65); // 25–90 km/h
+		const maxKmh = avgKmh + 20 + Math.floor(Math.random() * 60); // avg+20 à avg+80
+		const durationSec = Math.round((distanceM / 1000 / avgKmh) * 3600);
+		const durationMs = durationSec * 1000;
+		const avgSpeedKnots = avgKmh / 1.852;
+		const maxSpeedKnots = maxKmh / 1.852;
 
 		// Dates relatives pour s'assurer que tous les filtres de la démo soient couverts
 		const relativeOffsets = [
@@ -649,13 +656,65 @@ export class DemoService {
 		startDate.setDate(startDate.getDate() - daysAgo);
 		startDate.setHours(9, 0, 0, 0);
 
+		const startMs = startDate.getTime();
+		const msPerCoord = durationMs / Math.max(coords.length - 1, 1);
+
+		// Keyframes + smoothstep pour des courbes réalistes non-bruitées
+		const NUM_KEYS = 6;
+		const ss = (a: number, b: number, t: number) => {
+			const x = Math.max(0, Math.min(1, t));
+			return a + (b - a) * x * x * (3 - 2 * x);
+		};
+		const baseAlt = 10 + Math.floor(Math.random() * 150);
+		// Altitude : part et revient à baseAlt, varie au milieu
+		const altKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) =>
+			k === 0 || k === NUM_KEYS ? baseAlt : baseAlt + (Math.random() - 0.4) * 80,
+		);
+		// Vitesse : faible au départ et à l'arrivée, max au milieu
+		const speedKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) => {
+			if (k === 0 || k === NUM_KEYS) return avgSpeedKnots * 0.1; // départ/arrivée lent
+			const bell = Math.sin((k / NUM_KEYS) * Math.PI); // enveloppe en cloche
+			return avgSpeedKnots * (0.6 + bell * 0.8 + (Math.random() - 0.3) * 0.4);
+		});
+		// Angle : vertical (90°) au départ et à l'arrivée, inclinaison au milieu
+		const angleKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) =>
+			k === 0 || k === NUM_KEYS ? 90 : 90 + (Math.random() - 0.5) * 28,
+		);
+
+		const positions: GeoRidePosition[] = coords.map(([lat, lon], idx) => {
+			const t = idx / Math.max(coords.length - 1, 1);
+			const seg = Math.min(Math.floor(t * NUM_KEYS), NUM_KEYS - 1);
+			const st = t * NUM_KEYS - seg;
+			const altitude = Math.round(Math.max(1, ss(altKeys[seg], altKeys[seg + 1], st)));
+			const speedKnots = Math.max(0.3, ss(speedKeys[seg], speedKeys[seg + 1], st));
+			const angle = ss(angleKeys[seg], angleKeys[seg + 1], st);
+			return {
+				fixtime: new Date(startMs + idx * msPerCoord).toISOString(),
+				latitude: lat,
+				longitude: lon,
+				altitude,
+				speed: speedKnots,
+				angle,
+				address: null,
+			};
+		});
+
+		// Stats d'angle réalistes depuis les positions
+		const maxAngleVal = Math.max(...positions.map((p) => Math.abs(p.angle - 90)));
+		const maxLeftAngle = 90 - Math.min(...positions.map((p) => p.angle));
+		const maxRightAngle = Math.max(...positions.map((p) => p.angle)) - 90;
+
+		// Calculer les vitesses réelles depuis les positions pour cohérence avec le graphique
+		const actualMaxSpeed = Math.max(...positions.map((p) => p.speed));
+		const actualAvgSpeed = positions.reduce((s, p) => s + p.speed, 0) / positions.length;
+
 		return {
 			id: i + 1,
 			trackerId: 1,
 			distance: distanceM,
-			duration: durationSec,
-			averageSpeed: 75,
-			maxSpeed: 130,
+			duration: durationMs,
+			averageSpeed: actualAvgSpeed,
+			maxSpeed: actualMaxSpeed,
 			startTime: startDate.toISOString(),
 			endTime: new Date(startDate.getTime() + durationSec * 1000).toISOString(),
 			startLat: coords[0][0],
@@ -667,12 +726,13 @@ export class DemoService {
 			endAddress: route.end,
 			niceEndAddress: route.end,
 			staticImage: '',
-			maxAngle: 0,
-			maxLeftAngle: null,
-			maxRightAngle: null,
-			averageAngle: null,
+			maxAngle: 90 + maxAngleVal,
+			maxLeftAngle,
+			maxRightAngle,
+			averageAngle: 14,
 			isFavorite: false,
 			coords,
+			positions,
 		};
 	}
 

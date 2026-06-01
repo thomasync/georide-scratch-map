@@ -14,7 +14,7 @@ export function computeAltProfile(positions: GeoRidePosition[]): AltProfile | nu
 		const diff = alts[i] - alts[i - 1];
 		if (diff > 0) gain += diff;
 	}
-	return { minAlt: Math.min(...alts), maxAlt: Math.max(...alts), gain: Math.round(gain) };
+	return { minAlt: Math.round(Math.min(...alts)), maxAlt: Math.round(Math.max(...alts)), gain: Math.round(gain) };
 }
 
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

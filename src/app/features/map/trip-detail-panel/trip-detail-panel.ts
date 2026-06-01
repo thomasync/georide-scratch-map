@@ -22,7 +22,7 @@ import { DatabaseService } from '../../../core/services/database';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler, Tooltip);
 
-const MAX_CHART_POINTS = 400;
+const MAX_CHART_POINTS = 800;
 const COLOR_ALT = '#7986cb';
 const COLOR_SPEED = '#4caf50';
 const COLOR_ANGLE = '#e57373'; // déclinaison claire du rouge virages #ff1744
@@ -33,6 +33,8 @@ interface CityEntry {
 	time: string; // HH:MM
 	lat: number;
 	lon: number;
+	firstTime: string; // ISO — début du passage dans la ville
+	lastTime: string; // ISO — fin du passage dans la ville
 }
 
 @Component({
@@ -63,6 +65,8 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	@Output() selectTripEvent = new EventEmitter<TripWithCoords>();
 	@Output() showStatPoints = new EventEmitter<[number, number][]>();
 	@Output() animatePath = new EventEmitter<[number, number][]>();
+	@Output() showCitySegment = new EventEmitter<[number, number][]>();
+	@Output() fitCitySegment = new EventEmitter<[number, number][]>();
 
 	@ViewChild(BaseChartDirective) chartRef?: BaseChartDirective;
 
@@ -390,6 +394,9 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 
 	ngOnChanges(changes: SimpleChanges): void {
 		if (changes['trip'] && this.trip) {
+			// Mémoriser l'indexId original uniquement si c'est un nouveau trajet (pas une mise à jour de boucle)
+			if (!this.isLoopActive) {
+			}
 			this.updateTripMeta();
 			this.positionsLoading = true;
 			this.sampledPositions = [];
@@ -416,7 +423,8 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		if (changes['positions'] || (changes['trip'] && this.positions)) {
 			this.buildChartData();
 		}
-		if (changes['allTrips'] || changes['trip']) {
+		// Ne pas recalculer la boucle quand le mergedTrip arrive en mode boucle actif
+		if (changes['allTrips'] || (changes['trip'] && !this.isLoopActive)) {
 			this.updateDayTrips();
 		}
 		if (changes['activePauseIdx'] && this.activePauseIdx !== null && this.pausePointsVisible) {
@@ -459,12 +467,23 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 
 		this.positionsLoading = false;
 
-		// Downsample
+		// Downsample en conservant les positions remarquables (vitesse max, altitude max)
 		const step = Math.max(1, Math.ceil(positions.length / MAX_CHART_POINTS));
 		const sampled: GeoRidePosition[] = [];
-		for (let i = 0; i < positions.length; i += step) sampled.push(positions[i]);
-		if (sampled[sampled.length - 1] !== positions[positions.length - 1]) {
-			sampled.push(positions[positions.length - 1]);
+		let maxSpeedIdx = 0,
+			maxAltIdx = 0,
+			minAltIdx = 0,
+			maxAngleIdx = 0;
+		for (let i = 0; i < positions.length; i++) {
+			const p = positions[i];
+			if (p.speed > positions[maxSpeedIdx].speed) maxSpeedIdx = i;
+			if (p.altitude > positions[maxAltIdx].altitude) maxAltIdx = i;
+			if (p.altitude < positions[minAltIdx].altitude) minAltIdx = i;
+			if (Math.abs(p.angle - 90) > Math.abs(positions[maxAngleIdx].angle - 90)) maxAngleIdx = i;
+		}
+		const mustInclude = new Set([0, maxSpeedIdx, maxAltIdx, minAltIdx, maxAngleIdx, positions.length - 1]);
+		for (let i = 0; i < positions.length; i++) {
+			if (i % step === 0 || mustInclude.has(i)) sampled.push(positions[i]);
 		}
 		this.sampledPositions = sampled;
 
@@ -618,8 +637,14 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		}
 		this.cities = cityOrder.map((city, idx) => {
 			const e = cityMap.get(city)!;
-			// 1ère ville : heure de départ (firstTime), autres : heure à laquelle on quitte (lastTime)
-			return { name: city, time: formatTime(idx === 0 ? e.firstTime : e.lastTime), lat: e.lat, lon: e.lon };
+			return {
+				name: city,
+				time: formatTime(idx === 0 ? e.firstTime : e.lastTime),
+				lat: e.lat,
+				lon: e.lon,
+				firstTime: e.firstTime,
+				lastTime: e.lastTime,
+			};
 		});
 
 		// Cas boucle : si la dernière position revient sur une ville déjà vue mais pas en fin de liste,
@@ -630,7 +655,15 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			const lastInList = this.cities[this.cities.length - 1]?.name;
 			if (endCity && endCity !== lastInList) {
 				const e = cityMap.get(endCity);
-				if (e) this.cities.push({ name: endCity, time: formatTime(e.lastTime), lat: e.lat, lon: e.lon });
+				if (e)
+					this.cities.push({
+						name: endCity,
+						time: formatTime(e.lastTime),
+						lat: e.lat,
+						lon: e.lon,
+						firstTime: e.firstTime,
+						lastTime: e.lastTime,
+					});
 			}
 		}
 
@@ -675,10 +708,14 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			return;
 		}
 		const tid = this.trip.trackerId;
-		// Pas de filtre par date : isLinkedTrip (3h max + 3km) suffit à limiter la recherche
-		// On exclut les trajets manuellement retirés de la boucle
+		// Fenêtre ±24h autour du trajet cliqué : couvre les boucles à cheval sur minuit
+		// sans chaîner tous les trajets de la semaine (comme en mode démo)
+		const clickedMs = new Date(this.trip.startTime).getTime();
 		const sameTrackerTrips = this.allTrips.filter(
-			(t) => t.trackerId === tid && !this.excludedTripIds.has(t.indexId),
+			(t) =>
+				t.trackerId === tid &&
+				!this.excludedTripIds.has(t.indexId) &&
+				Math.abs(new Date(t.startTime).getTime() - clickedMs) < 24 * 3_600_000,
 		);
 
 		// BFS : part du trajet cliqué et propage transitivement
@@ -733,7 +770,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 						const latLon: [number, number] = [pos.latitude, pos.longitude];
 						self.hoverPosition.emit(latLon);
 						if (self.followEnabled) self.followPosition.emit(latLon);
-						self.hoverAlt = pos.altitude > 0 ? pos.altitude : null;
+						self.hoverAlt = pos.altitude > 0 ? Math.round(pos.altitude) : null;
 						self.hoverSpeed = Math.round(pos.speed * 1.852);
 						// On ne peut pas calculer le delta sans la position précédente dans sampledPositions,
 						// on lit directement depuis le dataset angle
@@ -996,15 +1033,42 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	onCityEnter(city: CityEntry): void {
-		this.hoverPosition.emit([city.lat, city.lon]);
+		const positions = this.positions;
+		if (!positions?.length) return;
+		const t0 = new Date(city.firstTime).getTime();
+		const t1 = new Date(city.lastTime).getTime();
+		const segCoords = positions
+			.filter((p) => {
+				const t = new Date(p.fixtime).getTime();
+				return t >= t0 && t <= t1;
+			})
+			.map((p) => [p.longitude, p.latitude] as [number, number]);
+		this.showCitySegment.emit(segCoords.length >= 2 ? segCoords : []);
 	}
 
 	onCityLeave(): void {
-		this.hoverPosition.emit(null);
+		this.showCitySegment.emit([]);
 	}
 
 	onCityClick(city: CityEntry): void {
-		this.flyToPosition.emit([city.lat, city.lon]);
+		const positions = this.positions;
+		if (!positions?.length) {
+			this.flyToPosition.emit([city.lat, city.lon]);
+			return;
+		}
+		const t0 = new Date(city.firstTime).getTime();
+		const t1 = new Date(city.lastTime).getTime();
+		const segCoords = positions
+			.filter((p) => {
+				const t = new Date(p.fixtime).getTime();
+				return t >= t0 && t <= t1;
+			})
+			.map((p) => [p.longitude, p.latitude] as [number, number]);
+		if (segCoords.length >= 2) {
+			this.fitCitySegment.emit(segCoords);
+		} else {
+			this.flyToPosition.emit([city.lat, city.lon]);
+		}
 	}
 
 	onClose(): void {

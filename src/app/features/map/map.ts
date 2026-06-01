@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
-import { Observable, catchError, concat, forkJoin, map as rxMap, of, reduce, switchMap, tap } from 'rxjs';
+import { Observable, catchError, concat, defer, forkJoin, map as rxMap, of, reduce, switchMap, tap } from 'rxjs';
 import { MergedTrip } from '../../core/models/trip';
 import { GeorideApiService } from '../../core/services/georide-api';
 import { H3Data, H3Resolution, H3Service, resolutionForZoom } from '../../core/services/h3';
@@ -24,7 +24,7 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DatabaseService, StoredTrip } from '../../core/services/database';
-import { getResolution, latLngToCell } from 'h3-js';
+import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
 import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { DevBoxComponent } from './dev-box';
@@ -79,12 +79,18 @@ const DATE_FILTER_LABELS: Record<DateFilterPreset, string> = {
 const NEIGHBORING_COUNTRIES = [
 	{ code: 'ES', name: 'Espagne', flag: '🇪🇸', minLat: 35.9, maxLat: 43.8, minLon: -9.3, maxLon: 4.4 },
 	{ code: 'AD', name: 'Andorre', flag: '🇦🇩', minLat: 42.42, maxLat: 42.66, minLon: 1.4, maxLon: 1.8 },
+	{ code: 'PT', name: 'Portugal', flag: '🇵🇹', minLat: 36.8, maxLat: 42.2, minLon: -9.5, maxLon: -6.2 },
 	{ code: 'BE', name: 'Belgique', flag: '🇧🇪', minLat: 49.5, maxLat: 51.5, minLon: 2.5, maxLon: 6.4 },
+	{ code: 'NL', name: 'Pays-Bas', flag: '🇳🇱', minLat: 50.7, maxLat: 53.6, minLon: 3.3, maxLon: 7.2 },
 	{ code: 'LU', name: 'Luxembourg', flag: '🇱🇺', minLat: 49.4, maxLat: 50.2, minLon: 5.7, maxLon: 6.5 },
 	{ code: 'DE', name: 'Allemagne', flag: '🇩🇪', minLat: 47.3, maxLat: 55.1, minLon: 6.0, maxLon: 15.0 },
 	{ code: 'CH', name: 'Suisse', flag: '🇨🇭', minLat: 45.8, maxLat: 47.8, minLon: 6.0, maxLon: 10.5 },
+	{ code: 'LI', name: 'Liechtenstein', flag: '🇱🇮', minLat: 47.05, maxLat: 47.27, minLon: 9.47, maxLon: 9.64 },
+	{ code: 'AT', name: 'Autriche', flag: '🇦🇹', minLat: 46.4, maxLat: 49.0, minLon: 9.5, maxLon: 17.2 },
 	{ code: 'IT', name: 'Italie', flag: '🇮🇹', minLat: 36.6, maxLat: 47.1, minLon: 7.6, maxLon: 18.5 },
 	{ code: 'MC', name: 'Monaco', flag: '🇲🇨', minLat: 43.72, maxLat: 43.78, minLon: 7.37, maxLon: 7.44 },
+	{ code: 'SI', name: 'Slovénie', flag: '🇸🇮', minLat: 45.4, maxLat: 46.9, minLon: 13.4, maxLon: 16.6 },
+	{ code: 'MA', name: 'Maroc', flag: '🇲🇦', minLat: 27.7, maxLat: 35.9, minLon: -13.2, maxLon: -1.0 },
 ] as const;
 type NeighboringCountry = (typeof NEIGHBORING_COUNTRIES)[number];
 
@@ -138,6 +144,7 @@ export class Map {
 
 	loading = signal(true);
 	loadingHiding = signal(false);
+	loadingChunk = signal<{ current: number; total: number } | null>(null);
 	tripCount = signal(0);
 	totalKm = signal(0);
 	hexHoverSpeedAvg = signal(null as number | null);
@@ -970,8 +977,50 @@ export class Map {
 			7,
 		);
 		this.computeNewCellsR7(allR7, latestTripDate);
+		this.visitedNeighboringCountries.set(
+			NEIGHBORING_COUNTRIES.filter((c) =>
+				this.allTripsWithCoords.some((t) =>
+					t.coords.some(
+						([lat, lon]) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
+					),
+				),
+			) as NeighboringCountry[],
+		);
+		this.visitedSeasons.set(
+			SEASONS.filter((s) =>
+				this.allTripsWithCoords.some((t) => s.months.includes(new Date(t.startTime).getMonth() + 1)),
+			) as Season[],
+		);
 		this.addLayers();
 		this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
+	}
+
+	private getTripsChunked(trackerId: number, from: Date, to: Date, chunkDays = 30): Observable<MergedTrip[]> {
+		const chunks: { from: Date; to: Date }[] = [];
+		let cursor = new Date(from);
+		while (cursor < to) {
+			const end = new Date(cursor);
+			end.setDate(end.getDate() + chunkDays);
+			if (end > to) end.setTime(to.getTime());
+			chunks.push({ from: new Date(cursor), to: new Date(end) });
+			cursor = new Date(end);
+			cursor.setMilliseconds(cursor.getMilliseconds() + 1);
+		}
+		if (!chunks.length) return of([]);
+		const total = chunks.length;
+		this.logger.log('Map', `getTripsChunked: ${total} chunks of ${chunkDays}d`);
+		if (total > 1) this.loadingChunk.set({ current: 1, total });
+		return concat(
+			...chunks.map((c, i) =>
+				defer(() => {
+					if (total > 1) this.loadingChunk.set({ current: i + 1, total });
+					return this.api.getTrips(trackerId, c.from, c.to);
+				}),
+			),
+		).pipe(
+			reduce((acc: MergedTrip[], trips) => [...acc, ...(trips as MergedTrip[])], []),
+			tap(() => this.loadingChunk.set(null)),
+		);
 	}
 
 	private loadData(): void {
@@ -1018,7 +1067,7 @@ export class Map {
 							this.logger.log('Map', `got ${trackers.length} tracker(s), syncing delta`);
 							return forkJoin(
 								trackers.map((t) =>
-									this.api.getTrips(t.trackerId, from ?? new Date(t.activationDate), to),
+									this.getTripsChunked(t.trackerId, from ?? new Date(t.activationDate), to),
 								),
 							).pipe(
 								rxMap((tripArrays) => {
@@ -1600,6 +1649,42 @@ export class Map {
 			});
 		}
 
+		// --- Segment ville sélectionnée ---
+		if (!this.map.getSource('city-segment')) {
+			this.map.addSource('city-segment', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'city-segment-line',
+				type: 'line',
+				source: 'city-segment',
+				paint: {
+					'line-color': '#e09000',
+					'line-width': 4,
+					'line-opacity': 0.9,
+				},
+			});
+		}
+
+		// --- Hexagone sélectionné (bordure) ---
+		if (!this.map.getSource('selected-hex')) {
+			this.map.addSource('selected-hex', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] },
+			});
+			this.map.addLayer({
+				id: 'selected-hex-line',
+				type: 'line',
+				source: 'selected-hex',
+				paint: {
+					'line-color': '#f5a800',
+					'line-width': 2,
+					'line-opacity': 0.85,
+				},
+			});
+		}
+
 		// --- Stat highlight points ---
 		if (!this.map.getSource('stat-points')) {
 			this.map.addSource('stat-points', {
@@ -1885,7 +1970,8 @@ export class Map {
 				}
 			}
 
-			this.popup?.remove();
+			// Ne fermer la popup qu'en mode département (les hex restent visibles en mode polyline)
+			if (mode === 'dept') this.popup?.remove();
 		}
 
 		const newCellsVisibility =
@@ -2243,17 +2329,45 @@ export class Map {
 			})),
 		});
 
+		// Cap à 99 trajets les plus récents pour l'affichage (le reste reste disponible pour les stats etc.)
+		const MAX_DISPLAY = 99;
+		const displaySorted = sorted.length > MAX_DISPLAY ? sorted.slice(0, MAX_DISPLAY) : sorted;
+
+		// Point le plus au nord de l'hexagone (pour positionner la popup au-dessus des arrêts)
+		const boundary = cellToBoundary(cell);
+		const northPoint = boundary.reduce((max, p) => (p[0] > max[0] ? p : max), boundary[0]);
+		const northLngLat: [number, number] = [northPoint[1], northPoint[0]];
+
 		this.popup?.remove();
 		this.openPopupCell = cell;
+
+		// Afficher la bordure de l'hexagone sélectionné
+		if (this.map?.getSource('selected-hex')) {
+			const boundary = cellToBoundary(cell);
+			const ring = boundary.map(([lat, lng]) => [lng, lat] as [number, number]);
+			ring.push(ring[0]); // fermer le polygone
+			(this.map.getSource('selected-hex') as maplibregl.GeoJSONSource).setData({
+				type: 'Feature',
+				geometry: { type: 'Polygon', coordinates: [ring] },
+				properties: {},
+			});
+		}
+
 		this.popup = new maplibregl.Popup({ maxWidth: 'min(320px, calc(100vw - 2rem))' })
 			.setLngLat(center)
-			.setHTML(this.buildHexPopupHtml(sorted, stopsInCell))
+			.setHTML(this.buildHexPopupHtml(displaySorted, stopsInCell, sorted.length))
 			.addTo(this.map!);
 
 		this.popup.on('close', () => {
 			if (!this.keepTripLineOnClose) this.clearTripLine();
 			this.keepTripLineOnClose = false;
 			this.openPopupCell = null;
+			if (this.map?.getSource('selected-hex')) {
+				(this.map.getSource('selected-hex') as maplibregl.GeoJSONSource).setData({
+					type: 'FeatureCollection',
+					features: [],
+				});
+			}
 			if (!this.keepStopsPreviewOnClose) {
 				this.map?.setLayoutProperty('stops-preview-circle', 'visibility', 'none');
 			}
@@ -2267,8 +2381,8 @@ export class Map {
 				const idx = parseInt(item.getAttribute('data-trip-idx')!, 10);
 				item.addEventListener('click', () => {
 					this.keepTripLineOnClose = true;
-					this.showTripLine(sorted[idx]);
-					if ((this.map?.getZoom() ?? 0) < 14) this.fitToVisited([sorted[idx].coords], 14);
+					this.showTripLine(displaySorted[idx]);
+					if ((this.map?.getZoom() ?? 0) < 14) this.fitToVisited([displaySorted[idx].coords], 14);
 					this.popup?.remove();
 					this.popup = null;
 				});
@@ -2287,6 +2401,8 @@ export class Map {
 						'visibility',
 						tab === 'arrets' ? 'visible' : 'none',
 					);
+					// Déplacer la popup : en haut de l'hex pour les arrêts, au centre pour les passages
+					this.popup?.setLngLat(tab === 'arrets' ? northLngLat : center);
 					if (tab === 'arrets' && stopsInCell.length && (this.map?.getZoom() ?? 0) <= 12) {
 						this.fitToVisited(
 							[stopsInCell.map(({ coordinates: [lon, lat] }) => [lat, lon] as [number, number])],
@@ -3258,6 +3374,7 @@ export class Map {
 	private buildHexPopupHtml(
 		sorted: TripWithCoords[],
 		stopsInCell: Array<{ count: number; lastDate: string; address: string }>,
+		totalCount = sorted.length,
 	): string {
 		if (!sorted.length) return '<div class="popup-empty">Aucun trajet trouvé</div>';
 
@@ -3284,6 +3401,7 @@ export class Map {
 			.join('');
 
 		const distinctDays = new Set(sorted.map((t) => t.startTime.substring(0, 10))).size;
+		const passagesLabel = totalCount > 99 ? '99+' : `${distinctDays}`;
 
 		const stopRows = stopsInCell.length
 			? stopsInCell
@@ -3307,7 +3425,7 @@ export class Map {
 		return `<div class="popup-hex">
       <div class="popup-header-row">
         <div class="popup-tab-toggle">
-          <button class="popup-tab active" data-tab="passages" ${distinctDays === 0 ? 'disabled' : ''}>${distinctDays} passage${distinctDays > 1 ? 's' : ''}</button>
+          <button class="popup-tab active" data-tab="passages" ${distinctDays === 0 ? 'disabled' : ''}>${passagesLabel} passage${distinctDays > 1 ? 's' : ''}</button>
           <button class="popup-tab" data-tab="arrets" ${stopsInCell.length === 0 ? 'disabled' : ''}>${stopsInCell.length} arrêt${stopsInCell.length > 1 ? 's' : ''}</button>
         </div>
       </div>
@@ -3440,6 +3558,12 @@ export class Map {
 				features: [],
 			});
 		}
+		if (this.map?.getSource('city-segment')) {
+			(this.map.getSource('city-segment') as maplibregl.GeoJSONSource).setData({
+				type: 'FeatureCollection',
+				features: [],
+			});
+		}
 		if (!skipUpdateView) {
 			this.currentMode = null;
 			this.updateView();
@@ -3541,6 +3665,23 @@ export class Map {
 		}, 520);
 	}
 
+	onFitCitySegment(coords: [number, number][]): void {
+		this.onShowCitySegment(coords);
+		if (coords.length >= 2) {
+			// fitToVisited attend [lat, lon][], les coords sont [lon, lat][] → swap
+			this.fitToVisited([coords.map(([lon, lat]) => [lat, lon] as [number, number])], 15);
+		}
+	}
+
+	onShowCitySegment(coords: [number, number][]): void {
+		if (!this.map?.getSource('city-segment')) return;
+		(this.map.getSource('city-segment') as maplibregl.GeoJSONSource).setData(
+			coords.length >= 2
+				? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
+				: { type: 'FeatureCollection', features: [] },
+		);
+	}
+
 	onSnapToPosition(pos: [number, number]): void {
 		if (!this.map) return;
 		this.map.easeTo({ center: [pos[1], pos[0]], zoom: Math.max(this.map.getZoom(), 15), duration: 1000 });
@@ -3554,12 +3695,14 @@ export class Map {
 	onFollowPosition(pos: [number, number] | null): void {
 		if (!this.map || !pos) return;
 		const center: [number, number] = [pos[1], pos[0]];
+		// Sur mobile le panel occupe ~60vh en bas, décaler le centre vers le haut
+		const padding = this.isMobile
+			? { top: 20, right: 20, bottom: Math.round(window.innerHeight * 0.62), left: 20 }
+			: undefined;
 		if (this.map.getZoom() < 12) {
-			// Premier survol : zoom + centre animé
-			this.map.easeTo({ center, zoom: 14, duration: 400 });
+			this.map.easeTo({ center, zoom: 14, duration: 400, padding });
 		} else {
-			// Suivi instantané sans animation pour ne pas ramer
-			this.map.jumpTo({ center });
+			this.map.jumpTo({ center, padding });
 		}
 	}
 

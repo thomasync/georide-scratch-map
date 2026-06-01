@@ -168,7 +168,12 @@
 
 @if (loading()) {
 	<div class="overlay-loading" [class.hiding]="loadingHiding()">
-		<span>Chargement des trajets…</span>
+		<span>
+			Chargement des trajets…
+			@if (loadingChunk(); as c) {
+				<span style="opacity: 0.6; font-size: 0.85em"> ({{ c.current }}&thinsp;/&thinsp;{{ c.total }})</span>
+			}
+		</span>
 	</div>
 }
 
@@ -374,6 +379,8 @@
 		(flyToPosition)="onFlyToPosition($event)"
 		(snapToPosition)="onSnapToPosition($event)"
 		(animatePath)="onAnimatePath($event)"
+		(showCitySegment)="onShowCitySegment($event)"
+		(fitCitySegment)="onFitCitySegment($event)"
 		(showPauseChips)="onShowPauseChips($event)"
 		[activePauseIdx]="clickedPauseIdx()"
 		(followPosition)="onFollowPosition($event)"

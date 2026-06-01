@@ -25,7 +25,7 @@
 
 .demo-watermark {
 	position: absolute;
-	bottom: max(8rem, calc(env(safe-area-inset-bottom) + 7rem));
+	top: max(4rem, calc(env(safe-area-inset-top) + 3rem));
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 30;
