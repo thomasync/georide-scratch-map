@@ -17,7 +17,9 @@
       "mcp__chrome-devtools__take_screenshot",
       "mcp__chrome-devtools__list_pages",
       "Bash(npx ng *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(tail -3 /tmp/osrm_progress.txt)",
+      "Read(//private/tmp/**)"
     ]
   }
 }

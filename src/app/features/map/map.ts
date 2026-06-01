@@ -577,9 +577,53 @@ export class Map {
 		this.viewMenuHideTimer = setTimeout(() => this.showViewMenu.set(false), 200);
 	}
 
-	viewMyTrips(): void {
+	viewMyTrips(animate = true, speed = 1.2): void {
 		if (!this.map || this.tripsWithCoords.length === 0) return;
-		this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+		let minLat = Infinity,
+			maxLat = -Infinity,
+			minLon = Infinity,
+			maxLon = -Infinity;
+		for (const { startLat, startLon, endLat, endLon } of this.tripsWithCoords) {
+			if (startLat < minLat) minLat = startLat;
+			if (startLat > maxLat) maxLat = startLat;
+			if (startLon < minLon) minLon = startLon;
+			if (startLon > maxLon) maxLon = startLon;
+			if (endLat < minLat) minLat = endLat;
+			if (endLat > maxLat) maxLat = endLat;
+			if (endLon < minLon) minLon = endLon;
+			if (endLon > maxLon) maxLon = endLon;
+		}
+		const THRESHOLD = 20;
+		if (maxLat - minLat <= THRESHOLD && maxLon - minLon <= THRESHOLD) {
+			this.fitToVisited(
+				this.tripsWithCoords.map((t) => t.coords),
+				undefined,
+				speed,
+				animate,
+			);
+			return;
+		}
+		// Delta trop grand : zoomer sur le pays le plus visité
+		const FRANCE = { minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 };
+		const inBbox = (t: TripWithCoords, b: { minLat: number; maxLat: number; minLon: number; maxLon: number }) =>
+			t.coords.some(([la, lo]) => la >= b.minLat && la <= b.maxLat && lo >= b.minLon && lo <= b.maxLon);
+		const count = (b: { minLat: number; maxLat: number; minLon: number; maxLon: number }) =>
+			this.tripsWithCoords.filter((t) => inBbox(t, b)).length;
+		const top = this.visitedNeighboringCountries()[0];
+		const duration = animate ? 800 : 0;
+		if (!top || count(FRANCE) >= count(top)) {
+			const z = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
+			this.map.easeTo({ center: [2.3, 46.2], zoom: z, duration });
+		} else {
+			const cam = this.map.cameraForBounds(
+				[
+					[top.minLon, top.minLat],
+					[top.maxLon, top.maxLat],
+				],
+				{ padding: 40 },
+			);
+			if (cam) this.map.easeTo({ ...cam, duration });
+		}
 	}
 
 	viewFrance(): void {
@@ -1007,7 +1051,17 @@ export class Map {
 						([lat, lon]) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
 					),
 				),
-			) as NeighboringCountry[],
+			)
+				.map((c) => ({
+					country: c,
+					tripCount: this.allTripsWithCoords.filter((t) =>
+						t.coords.some(
+							([lat, lon]) => lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon,
+						),
+					).length,
+				}))
+				.sort((a, b) => b.tripCount - a.tripCount)
+				.map((x) => x.country) as NeighboringCountry[],
 		);
 		this.visitedSeasons.set(
 			SEASONS.filter((s) =>
@@ -1015,7 +1069,7 @@ export class Map {
 			) as Season[],
 		);
 		this.addLayers();
-		this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
+		this.initViewAfterLoad();
 	}
 
 	private getTripsChunked(trackerId: number, from: Date, to: Date, chunkDays = 30): Observable<MergedTrip[]> {
@@ -1343,7 +1397,7 @@ export class Map {
 					this.computeNewCellsR7(allR7);
 
 					this.addLayers();
-					this.initViewAfterLoad(this.tripsWithCoords.map((t) => t.coords));
+					this.initViewAfterLoad();
 
 					// Si les positions ont déjà été chargées (timestamp en IDB),
 					// recharger silencieusement en arrière-plan + invalider les caches de modes
@@ -4204,33 +4258,11 @@ export class Map {
 		};
 	}
 
-	private initViewAfterLoad(coords: [number, number][][]): void {
-		const fitMaxZoom = this.mapSettings.fitToVisitedMaxZoom();
-		this.fitToVisited(coords, fitMaxZoom, 1.2, false);
+	private initViewAfterLoad(): void {
+		this.viewMyTrips(false);
 		this.map!.once('idle', () => {
-			const all = coords.flat();
-			let jumpZoom = this.deptThreshold + 0.1;
-			if (all.length) {
-				let minLat = Infinity,
-					maxLat = -Infinity,
-					minLon = Infinity,
-					maxLon = -Infinity;
-				for (const [lat, lon] of all) {
-					if (lat < minLat) minLat = lat;
-					if (lat > maxLat) maxLat = lat;
-					if (lon < minLon) minLon = lon;
-					if (lon > maxLon) maxLon = lon;
-				}
-				const camera = this.map!.cameraForBounds(
-					[
-						[minLon, minLat],
-						[maxLon, maxLat],
-					],
-					{ padding: 40, maxZoom: fitMaxZoom },
-				);
-				const expectedZoom = camera?.zoom ?? jumpZoom;
-				jumpZoom = expectedZoom <= this.deptThreshold ? this.deptThreshold - 0.1 : this.deptThreshold + 0.1;
-			}
+			const z = this.map!.getZoom();
+			const jumpZoom = z <= this.deptThreshold ? this.deptThreshold - 0.1 : this.deptThreshold + 0.1;
 			this.map!.jumpTo({ zoom: jumpZoom });
 			this.loadingHiding.set(true);
 			setTimeout(() => {
@@ -4241,7 +4273,7 @@ export class Map {
 				}
 			}, 500);
 			this.logger.log('Map', 'done');
-			this.fitToVisited(coords, fitMaxZoom, 0.4);
+			this.viewMyTrips(true, 0.4);
 		});
 	}
 
