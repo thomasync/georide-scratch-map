@@ -166,6 +166,11 @@ export class Map {
 	hexHoverSpeedAvg = signal(null as number | null);
 	hexHoverSpeedMax = signal(null as number | null);
 	hexagonCount = signal(0);
+	streak = signal(0);
+	fullRegionCount = signal(0);
+	allTripsMaxSpeedKmh = signal(0);
+	allTripsMaxDistanceKm = signal(0);
+	countryCountStat = signal(1);
 	error = signal('');
 	zoom = signal(0);
 	isDevMode = isDevMode();
@@ -254,6 +259,8 @@ export class Map {
 	private tripSegmentsCache: Record<string, GeoJSON.FeatureCollection> = {};
 	private allTripsSegmentsFC: GeoJSON.FeatureCollection | null = null;
 	private selectedTrip: TripWithCoords | null = null;
+	private maxSpeedTrip: TripWithCoords | null = null;
+	private maxDistanceTrip: TripWithCoords | null = null;
 	private stopPopup: maplibregl.Popup | null = null;
 
 	showTripPanel = signal(false);
@@ -323,6 +330,52 @@ export class Map {
 				(a, b) => (counts[b.code] ?? 0) - (counts[a.code] ?? 0),
 			) as NeighboringCountry[],
 		);
+	}
+
+	private updateExtraStats(): void {
+		const trips = this.tripsWithCoords;
+		if (!trips.length) {
+			this.streak.set(0);
+			this.allTripsMaxSpeedKmh.set(0);
+			this.allTripsMaxDistanceKm.set(0);
+			this.countryCountStat.set(0);
+			return;
+		}
+		// Pays (filtrés)
+		const countryCodes = new Set<string>();
+		for (const t of trips) {
+			for (const c of NEIGHBORING_COUNTRIES) {
+				const inLat = (lat: number) => lat >= c.minLat && lat <= c.maxLat;
+				const inLon = (lon: number) => lon >= c.minLon && lon <= c.maxLon;
+				if ((inLat(t.startLat) && inLon(t.startLon)) || (inLat(t.endLat) && inLon(t.endLon))) {
+					countryCodes.add(c.code);
+				}
+			}
+		}
+		this.countryCountStat.set(countryCodes.size + 1); // +1 France
+		// Streak
+		const days = new Set(trips.map((t) => t.startTime.substring(0, 10)));
+		let streakCount = 0;
+		const today = new Date();
+		for (let i = 0; i < 366; i++) {
+			const d = new Date(today);
+			d.setDate(d.getDate() - i);
+			if (days.has(d.toISOString().substring(0, 10))) streakCount++;
+			else if (i > 0) break;
+		}
+		this.streak.set(streakCount);
+		this.maxSpeedTrip = trips.reduce((best, t) => (t.maxSpeed > best.maxSpeed ? t : best), trips[0]);
+		this.allTripsMaxSpeedKmh.set(Math.round(this.maxSpeedTrip.maxSpeed * 1.852));
+		this.maxDistanceTrip = trips.reduce((best, t) => (t.distance > best.distance ? t : best), trips[0]);
+		this.allTripsMaxDistanceKm.set(Math.round(this.maxDistanceTrip.distance / 1000));
+	}
+
+	private updateFullRegionCount(): void {
+		if (!this.enrichedDepts) {
+			this.fullRegionCount.set(0);
+			return;
+		}
+		this.fullRegionCount.set(this.enrichedDepts.features.filter((f) => (f.properties?.['pct'] ?? 0) > 50).length);
 	}
 
 	private updateAvailablePresets(): void {
@@ -490,6 +543,7 @@ export class Map {
 		const res = this.mapSettings.deptResolution() as H3Resolution;
 		this.cellsByResolution = { [res]: this.h3.computeResolution(tripData, res) };
 		this.hexagonCount.set(Object.keys(this.cellsByResolution[res]!.counts).length);
+		this.updateExtraStats();
 
 		this.enrichedDepts = null;
 
@@ -913,6 +967,24 @@ export class Map {
 			this.loadData();
 		});
 
+		document.getElementById('map')!.addEventListener(
+			'dblclick',
+			(e: MouseEvent) => {
+				const statEls = document.querySelectorAll<HTMLElement>('[data-stat-action]');
+				for (const el of statEls) {
+					const r = el.getBoundingClientRect();
+					if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+						e.stopPropagation();
+						e.preventDefault();
+						if (el.dataset['statAction'] === 'maxSpeed') this.openMaxSpeedTrip();
+						else if (el.dataset['statAction'] === 'maxDistance') this.openMaxDistanceTrip();
+						return;
+					}
+				}
+			},
+			{ capture: true },
+		);
+
 		this.map.on('zoomend', () => this.updateView());
 
 		// Mise à jour instantanée en cours d'animation quand un seuil est franchi
@@ -1041,6 +1113,7 @@ export class Map {
 		this.tripCount.set(tripCount);
 		this.totalKm.set(totalKm);
 		this.hexagonCount.set(hexagonCount);
+		this.updateExtraStats();
 		const latestTripDate = this.allTripsWithCoords.reduce<Date>((latest, t) => {
 			const d = new Date(t.startTime);
 			return d > latest ? d : latest;
@@ -1412,6 +1485,7 @@ export class Map {
 							this.cellsByResolution[this.mapSettings.deptResolution() as H3Resolution]?.counts ?? {},
 						).length,
 					);
+					this.updateExtraStats();
 
 					this.addLayers();
 					this.initViewAfterLoad();
@@ -2325,6 +2399,7 @@ export class Map {
 				data.cellToIndices,
 			);
 			this.logger.log('Map', `dept layers ready: ${this.departments.features.length} depts enriched`);
+			this.updateFullRegionCount();
 		}
 
 		const visitedDepts: GeoJSON.FeatureCollection = {
@@ -3798,6 +3873,18 @@ export class Map {
 		this.map.setPaintProperty('trip-line-segments-layer', 'line-opacity', this.segmentOpacityExpression());
 		this.map.setPaintProperty('trip-line-segments-layer', 'line-width', 4);
 		this.map.setLayoutProperty('trip-line-segments-layer', 'visibility', 'visible');
+	}
+
+	openMaxSpeedTrip(): void {
+		if (!this.maxSpeedTrip) return;
+		this.showTripLine(this.maxSpeedTrip);
+		this.fitToVisited([this.maxSpeedTrip.coords], 14);
+	}
+
+	openMaxDistanceTrip(): void {
+		if (!this.maxDistanceTrip) return;
+		this.showTripLine(this.maxDistanceTrip);
+		this.fitToVisited([this.maxDistanceTrip.coords], 14);
 	}
 
 	clearTripLine(skipUpdateView = false): void {

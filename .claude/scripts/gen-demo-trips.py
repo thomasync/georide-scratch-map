@@ -7,9 +7,9 @@ Output: [lat, lon] coords for H3 consistency.
 import json, urllib.request, urllib.error, urllib.parse, time, math, sys
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/{coords}?overview=full&geometries=geojson"
-ELEVATION_BATCH = 100   # Open-Meteo elevation API max per request (hard limit)
+ELEVATION_BATCH = 100   # Open-Topo Data max per request
 ELEVATION_STRIDE = 5   # sample every Nth coord; interpolate rest
-ELEVATION_DELAY = 0.15 # 0.15s between batches = ~6.5 req/s, well under 600/min limit
+ELEVATION_DELAY = 1.1  # 1.1s between batches (Open-Topo Data: 1 req/s free tier)
 
 def haversine_total(coords):
     total = 0.0
@@ -257,22 +257,22 @@ for r in results:
 
 # Fetch real elevations from Open-Meteo (SRTM 90m, free, no auth)
 def fetch_elevations_batch(lats, lons, retries=3):
-    """Fetch elevations via Open-Meteo POST. Retries on 429 with 60s backoff."""
-    url = "https://api.open-meteo.com/v1/elevation"
-    payload = json.dumps({
-        'latitude': [round(x, 4) for x in lats],
-        'longitude': [round(x, 4) for x in lons],
-    }).encode('utf-8')
+    """Fetch elevations via Open-Topo Data (SRTM 30m). 1 req/s free tier."""
+    url = "https://api.opentopodata.org/v1/srtm30m"
+    locs_str = "|".join(f"{round(lat,4)},{round(lon,4)}" for lat, lon in zip(lats, lons))
+    payload = json.dumps({"locations": locs_str}).encode('utf-8')
     req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = json.loads(r.read())
-            return [max(1, round(e)) for e in data['elevation']]
+            if data.get('status') != 'OK':
+                raise Exception(f"status={data.get('status')}")
+            return [max(1, round(res['elevation'] or 1)) for res in data['results']]
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < retries - 1:
-                print(f"  429 rate limit — waiting 60s...", file=sys.stderr)
-                time.sleep(60)
+                print(f"  429 — waiting 30s...", file=sys.stderr)
+                time.sleep(30)
                 continue
             print(f"  elevation API error: {e}", file=sys.stderr)
             return [200] * len(lats)

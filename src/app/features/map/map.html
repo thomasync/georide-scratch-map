@@ -242,11 +242,29 @@
 					<span class="stat-value">{{ totalKmFormatted() }}</span>
 					<span class="stat-label">km</span>
 				</div>
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ hexagonCount() }}</span>
-					<span class="stat-label">hex.</span>
-				</div>
+				@if (countryCountStat() >= 2) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ countryCountStat() }}</span>
+						<span class="stat-label">pays</span>
+					</div>
+				}
+				@if (fullRegionCount() > 0) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ fullRegionCount() }}</span>
+						<span class="stat-label">{{ fullRegionCount() === 1 ? 'région' : 'régions' }}</span>
+					</div>
+				}
+				@if (streak() >= 3) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value"
+							><img src="/fire.png" class="stat-flame" alt="🔥" />{{ streak() }}</span
+						>
+						<span class="stat-label">jours</span>
+					</div>
+				}
 				@if (colsMode() && hexHoverAlt() !== null) {
 					<span class="stat-sep">·</span>
 					<div class="stat">
@@ -275,6 +293,20 @@
 				}
 			}
 			@if (isDevMode) {
+				@if (allTripsMaxSpeedKmh() > 0) {
+					<span class="stat-sep">·</span>
+					<div class="stat stat--clickable" data-stat-action="maxSpeed">
+						<span class="stat-value">{{ allTripsMaxSpeedKmh() }}</span>
+						<span class="stat-label">km/h max</span>
+					</div>
+				}
+				@if (allTripsMaxDistanceKm() > 0) {
+					<span class="stat-sep">·</span>
+					<div class="stat stat--clickable" data-stat-action="maxDistance">
+						<span class="stat-value">{{ allTripsMaxDistanceKm() }}</span>
+						<span class="stat-label">km max</span>
+					</div>
+				}
 				<span class="stat-sep">·</span>
 				<div class="stat">
 					<span class="stat-value">{{ zoom() }}</span>
