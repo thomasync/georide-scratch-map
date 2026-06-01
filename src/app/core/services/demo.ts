@@ -567,6 +567,152 @@ const ROUTES: { start: string; end: string; date: string; waypoints: [number, nu
 			[42.51, 1.52],
 		],
 	},
+	// --- Nouvelles routes pour couvrir les pays manquants ---
+	// A — Monaco 🇲🇨
+	{
+		start: 'Nice',
+		end: 'Monaco',
+		date: '2024-06-12',
+		waypoints: [
+			[43.71, 7.26],
+			[43.73, 7.32],
+			[43.74, 7.42],
+		],
+	},
+	// B — Italie 🇮🇹
+	{
+		start: 'Nice',
+		end: 'San Remo',
+		date: '2024-07-03',
+		waypoints: [
+			[43.71, 7.26],
+			[43.79, 7.52], // Ventimiglia (frontière)
+			[43.82, 7.78], // San Remo, Italie
+		],
+	},
+	// C — Suisse 🇨🇭
+	{
+		start: 'Grenoble',
+		end: 'Genève',
+		date: '2024-07-20',
+		waypoints: [
+			[45.19, 5.72],
+			[45.58, 5.92],
+			[45.9, 6.11],
+			[46.2, 6.15], // Genève, Suisse
+		],
+	},
+	// D — Allemagne 🇩🇪
+	{
+		start: 'Genève',
+		end: 'Freiburg-im-Breisgau',
+		date: '2024-08-05',
+		waypoints: [
+			[46.2, 6.15],
+			[47.56, 7.59], // Basel, Suisse
+			[47.99, 7.85], // Freiburg, Allemagne
+		],
+	},
+	// E — Liechtenstein 🇱🇮
+	{
+		start: 'Freiburg-im-Breisgau',
+		end: 'Vaduz',
+		date: '2024-08-18',
+		waypoints: [
+			[47.99, 7.85],
+			[47.5, 9.0], // Constance (DE)
+			[47.14, 9.52], // Vaduz, Liechtenstein
+		],
+	},
+	// F — Autriche 🇦🇹
+	{
+		start: 'Vaduz',
+		end: 'Innsbruck',
+		date: '2024-09-01',
+		waypoints: [
+			[47.14, 9.52],
+			[47.27, 10.18], // Bregenz (AT)
+			[47.27, 11.39], // Innsbruck, Autriche
+		],
+	},
+	// G — Slovénie 🇸🇮
+	{
+		start: 'Innsbruck',
+		end: 'Ljubljana',
+		date: '2024-09-15',
+		waypoints: [
+			[47.27, 11.39],
+			[46.62, 13.85], // Villach (AT)
+			[46.05, 14.51], // Ljubljana, Slovénie
+		],
+	},
+	// H — Belgique 🇧🇪
+	{
+		start: 'Toulouse',
+		end: 'Bruxelles',
+		date: '2024-10-08',
+		waypoints: [
+			[43.6, 1.44],
+			[47.32, 5.04], // Dijon (FR)
+			[49.26, 4.03], // Reims (FR)
+			[50.85, 4.35], // Bruxelles, Belgique
+		],
+	},
+	// I — Luxembourg 🇱🇺
+	{
+		start: 'Bruxelles',
+		end: 'Luxembourg',
+		date: '2024-10-22',
+		waypoints: [
+			[50.85, 4.35],
+			[49.61, 6.13], // Luxembourg City
+		],
+	},
+	// J — Pays-Bas 🇳🇱
+	{
+		start: 'Bruxelles',
+		end: 'Amsterdam',
+		date: '2024-11-03',
+		waypoints: [
+			[50.85, 4.35],
+			[51.92, 4.48], // Rotterdam (NL)
+			[52.37, 4.89], // Amsterdam, Pays-Bas
+		],
+	},
+	// K — Portugal 🇵🇹
+	{
+		start: 'Bilbao',
+		end: 'Porto',
+		date: '2025-04-12',
+		waypoints: [
+			[43.26, -2.93],
+			[40.96, -5.66], // Salamanque (ES)
+			[41.15, -8.61], // Porto, Portugal
+		],
+	},
+	// L — Algéciras (étape vers le Maroc)
+	{
+		start: 'Tarragona',
+		end: 'Algeciras',
+		date: '2025-05-20',
+		waypoints: [
+			[41.12, 1.24],
+			[38.35, -0.48], // Alicante (ES)
+			[37.39, -5.99], // Séville (ES)
+			[36.14, -5.35], // Algeciras (ES)
+		],
+	},
+	// M — Maroc 🇲🇦 (suite du ferry Algeciras → Tanger)
+	{
+		start: 'Tanger',
+		end: 'Marrakech',
+		date: '2025-05-21',
+		waypoints: [
+			[35.77, -5.8], // Tanger, Maroc
+			[33.57, -7.58], // Casablanca, Maroc
+			[31.63, -8.0], // Marrakech, Maroc
+		],
+	},
 ];
 
 @Injectable({ providedIn: 'root' })

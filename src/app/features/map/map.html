@@ -79,70 +79,76 @@
 				<div class="ctrl-menu-sep"></div>
 
 				<div class="ctrl-menu-cat">Modes</div>
-				<button
-					class="ctrl-menu-item"
-					[class.active]="colsMode()"
-					[disabled]="elevationLoading()"
-					(click)="toggleColsMode(); showViewMenu.set(false)"
-				>
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
-					<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
-				</button>
-				<button
-					class="ctrl-menu-item"
-					[class.active]="turnsMode()"
-					[disabled]="elevationLoading()"
-					(click)="toggleTurnsMode(); showViewMenu.set(false)"
-				>
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">↩️</span>
-					<span>{{ elevationLoading() && turnsMode() ? 'Chargement…' : 'Virages' }}</span>
-				</button>
-				<button
-					class="ctrl-menu-item"
-					[class.active]="stopsMode()"
-					[disabled]="elevationLoading()"
-					(click)="toggleStopsMode(); showViewMenu.set(false)"
-				>
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">📍</span>
-					<span>Arrêts</span>
-				</button>
-				<button
-					class="ctrl-menu-item"
-					[class.active]="speedMode()"
-					[disabled]="elevationLoading()"
-					(click)="toggleSpeedMode(); showViewMenu.set(false)"
-				>
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⚡</span>
-					<span>Vitesse</span>
-				</button>
+				<div class="ctrl-menu-section ctrl-menu-section--modes">
+					<button
+						class="ctrl-menu-item"
+						[class.active]="colsMode()"
+						[disabled]="elevationLoading()"
+						(click)="toggleColsMode(); showViewMenu.set(false)"
+					>
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
+						<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
+					</button>
+					<button
+						class="ctrl-menu-item"
+						[class.active]="turnsMode()"
+						[disabled]="elevationLoading()"
+						(click)="toggleTurnsMode(); showViewMenu.set(false)"
+					>
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">↩️</span>
+						<span>{{ elevationLoading() && turnsMode() ? 'Chargement…' : 'Virages' }}</span>
+					</button>
+					<button
+						class="ctrl-menu-item"
+						[class.active]="stopsMode()"
+						[disabled]="elevationLoading()"
+						(click)="toggleStopsMode(); showViewMenu.set(false)"
+					>
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">📍</span>
+						<span>Arrêts</span>
+					</button>
+					<button
+						class="ctrl-menu-item"
+						[class.active]="speedMode()"
+						[disabled]="elevationLoading()"
+						(click)="toggleSpeedMode(); showViewMenu.set(false)"
+					>
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⚡</span>
+						<span>Vitesse</span>
+					</button>
+				</div>
 
 				<div class="ctrl-menu-sep"></div>
 
 				<div class="ctrl-menu-cat">Saisons</div>
-				@for (season of visitedSeasons(); track season.name) {
-					<button
-						class="ctrl-menu-item"
-						[class.active]="seasonFilter()?.name === season.name"
-						(click)="selectSeason(season); showViewMenu.set(false)"
-					>
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ season.emoji }}</span>
-						<span>{{ season.name }}</span>
-					</button>
-				}
+				<div class="ctrl-menu-section ctrl-menu-section--seasons">
+					@for (season of visitedSeasons(); track season.name) {
+						<button
+							class="ctrl-menu-item"
+							[class.active]="seasonFilter()?.name === season.name"
+							(click)="selectSeason(season); showViewMenu.set(false)"
+						>
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ season.emoji }}</span>
+							<span>{{ season.name }}</span>
+						</button>
+					}
+				</div>
 
 				<div class="ctrl-menu-sep"></div>
 
 				<div class="ctrl-menu-cat">Pays</div>
-				<button class="ctrl-menu-item" (click)="viewFrance(); showViewMenu.set(false)">
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🇫🇷</span>
-					<span>France</span>
-				</button>
-				@for (country of visitedNeighboringCountries(); track country.code) {
-					<button class="ctrl-menu-item" (click)="viewCountry(country); showViewMenu.set(false)">
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ country.flag }}</span>
-						<span>{{ country.name }}</span>
+				<div class="ctrl-menu-section ctrl-menu-section--countries">
+					<button class="ctrl-menu-item" (click)="viewFrance(); showViewMenu.set(false)">
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🇫🇷</span>
+						<span>France</span>
 					</button>
-				}
+					@for (country of visitedNeighboringCountries(); track country.code) {
+						<button class="ctrl-menu-item" (click)="viewCountry(country); showViewMenu.set(false)">
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ country.flag }}</span>
+							<span>{{ country.name }}</span>
+						</button>
+					}
+				</div>
 			</div>
 		}
 	</div>

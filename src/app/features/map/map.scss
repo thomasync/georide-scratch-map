@@ -75,6 +75,28 @@
 	gap: 0.1rem;
 	min-width: 11rem;
 	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+	max-height: calc(100vh - 5rem);
+}
+
+.ctrl-menu-section {
+	overflow-y: auto;
+	min-height: 2.4rem;
+	scrollbar-width: none; // scrollbar invisible, scroll toujours fonctionnel
+}
+
+// Modes : priorité max, rétrécit en dernier
+.ctrl-menu-section--modes {
+	flex: 0 1 auto;
+}
+// Saisons : priorité 2, rétrécit avant Modes
+.ctrl-menu-section--seasons {
+	flex: 0 10 auto;
+}
+// Pays : rétrécit en premier, prend l'espace restant sur grand écran
+.ctrl-menu-section--countries {
+	flex: 1 1000 auto;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 .ctrl-menu-item {
