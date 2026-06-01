@@ -4,9 +4,12 @@ Pre-compute all demo routes via OSRM and generate demo-trips.ts.
 Waypoints: [lat, lon]. OSRM API expects [lon, lat] (inverted).
 Output: [lat, lon] coords for H3 consistency.
 """
-import json, urllib.request, urllib.error, time, math, sys
+import json, urllib.request, urllib.error, urllib.parse, time, math, sys
 
 OSRM = "https://router.project-osrm.org/route/v1/driving/{coords}?overview=full&geometries=geojson"
+ELEVATION_BATCH = 100   # Open-Meteo elevation API max per request (hard limit)
+ELEVATION_STRIDE = 5   # sample every Nth coord; interpolate rest
+ELEVATION_DELAY = 0.15 # 0.15s between batches = ~6.5 req/s, well under 600/min limit
 
 def haversine_total(coords):
     total = 0.0
@@ -251,6 +254,75 @@ for r in results:
     if sampled[-1] != c[-1]:
         sampled.append(c[-1])
     r['coords'] = [[round(x[0], 4), round(x[1], 4)] for x in sampled]
+
+# Fetch real elevations from Open-Meteo (SRTM 90m, free, no auth)
+def fetch_elevations_batch(lats, lons, retries=3):
+    """Fetch elevations via Open-Meteo POST. Retries on 429 with 60s backoff."""
+    url = "https://api.open-meteo.com/v1/elevation"
+    payload = json.dumps({
+        'latitude': [round(x, 4) for x in lats],
+        'longitude': [round(x, 4) for x in lons],
+    }).encode('utf-8')
+    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read())
+            return [max(1, round(e)) for e in data['elevation']]
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries - 1:
+                print(f"  429 rate limit — waiting 60s...", file=sys.stderr)
+                time.sleep(60)
+                continue
+            print(f"  elevation API error: {e}", file=sys.stderr)
+            return [200] * len(lats)
+        except Exception as e:
+            print(f"  elevation API error: {e}", file=sys.stderr)
+            return [200] * len(lats)
+
+print("Fetching elevations from Open-Meteo (stride={})...".format(ELEVATION_STRIDE), file=sys.stderr)
+
+# Collect only strided coords for API fetch
+sampled_lats, sampled_lons, sampled_map = [], [], []  # map: (trip_idx, coord_idx)
+for i, r in enumerate(results):
+    coords = r['coords']
+    indices = list(range(0, len(coords), ELEVATION_STRIDE))
+    if indices[-1] != len(coords) - 1:
+        indices.append(len(coords) - 1)  # always include last point
+    for j in indices:
+        sampled_lats.append(coords[j][0])
+        sampled_lons.append(coords[j][1])
+        sampled_map.append((i, j))
+
+# Batch-fetch strided elevations
+sampled_elevs = []
+total = len(sampled_lats)
+for start in range(0, total, ELEVATION_BATCH):
+    end = min(start + ELEVATION_BATCH, total)
+    batch_elevs = fetch_elevations_batch(sampled_lats[start:end], sampled_lons[start:end])
+    sampled_elevs.extend(batch_elevs)
+    print(f"  elevations: {end}/{total}", file=sys.stderr)
+    if end < total:
+        time.sleep(ELEVATION_DELAY)
+
+# Build per-trip sampled elevation map, then linear-interpolate to fill all positions
+trip_sampled = {}  # trip_idx → {coord_idx: elevation}
+for elev, (i, j) in zip(sampled_elevs, sampled_map):
+    trip_sampled.setdefault(i, {})[j] = elev
+
+for i, r in enumerate(results):
+    n = len(r['coords'])
+    sparse = sorted(trip_sampled.get(i, {}).items())  # [(j, elev), ...]
+    alts = [200] * n
+    for k in range(len(sparse) - 1):
+        j0, e0 = sparse[k]
+        j1, e1 = sparse[k + 1]
+        for j in range(j0, j1 + 1):
+            t = (j - j0) / max(j1 - j0, 1)
+            alts[j] = max(1, round(e0 + t * (e1 - e0)))
+    r['alts'] = alts
+
+print(f"Elevations done. Sampled {total} pts (stride={ELEVATION_STRIDE})", file=sys.stderr)
 
 # Generate JSON (minified)
 print(json.dumps(results, separators=(',', ':')))

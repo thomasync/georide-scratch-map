@@ -1,12 +1,27 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { asyncScheduler, catchError, concat, forkJoin, map, Observable, observeOn, of, switchMap, tap } from 'rxjs';
+import {
+	asyncScheduler,
+	catchError,
+	concat,
+	forkJoin,
+	from,
+	map,
+	Observable,
+	observeOn,
+	of,
+	switchMap,
+	tap,
+} from 'rxjs';
 import { ANDORRA_FEATURE } from '../data/andorra';
 import { LUXEMBOURG_FEATURES } from '../data/luxembourg';
 import { LoggerService } from './logger';
 import { H3Data, H3Resolution, H3Service } from './h3';
+import { DatabaseService } from './database';
 import { Trip } from '../models/trip';
 import { GeoRidePosition } from './georide-api';
+
+const DEMO_H3_CACHE_KEY = 'demo_h3_res6';
 
 interface DemoTripData {
 	start: string;
@@ -15,6 +30,7 @@ interface DemoTripData {
 	startHour: number;
 	distanceM: number;
 	coords: [number, number][];
+	alts?: number[]; // altitudes réelles SRTM, même longueur que coords
 }
 
 export type DemoTripWithCoords = Trip & { indexId: string; coords: [number, number][]; positions: GeoRidePosition[] };
@@ -32,6 +48,7 @@ export interface DemoData {
 export class DemoService {
 	private http = inject(HttpClient);
 	private h3 = inject(H3Service);
+	private db = inject(DatabaseService);
 	private logger = new LoggerService();
 
 	load(): Observable<DemoData> {
@@ -198,24 +215,31 @@ export class DemoService {
 						const tripsWithCoords = demoTrips.map((route, i) => this.buildTrip(route, i));
 						return { departments, tripsWithCoords, remainingLoads };
 					}),
-					observeOn(asyncScheduler),
-					map(({ departments, tripsWithCoords, remainingLoads }) => {
+					switchMap(({ departments, tripsWithCoords, remainingLoads }) => {
 						const tripData = tripsWithCoords.map((t) => ({
 							coords: t.coords,
 							date: t.startTime.substring(0, 10),
 						}));
-						const h3Data = this.h3.computeResolution(tripData, 6);
-						return {
-							initialData: {
-								departments,
-								cellsByResolution: { 6: h3Data } as Partial<Record<H3Resolution, H3Data>>,
-								tripsWithCoords,
-								tripCount: tripsWithCoords.length,
-								totalKm: Math.round(tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000),
-								hexagonCount: Object.keys(h3Data.counts).length,
-							},
-							remainingLoads,
-						};
+						const compute$ = from(this.h3.computeResolutionAsync(tripData, 6)).pipe(
+							tap((h3Data) => this.db.kvSet(DEMO_H3_CACHE_KEY, h3Data).subscribe()),
+						);
+						return this.db.kvGet<H3Data>(DEMO_H3_CACHE_KEY).pipe(
+							tap((cached) =>
+								this.logger.log('Demo', cached ? 'H3 res=6 from cache' : 'H3 res=6 computing...'),
+							),
+							switchMap((cached) => (cached ? of(cached) : compute$)),
+							map((h3Data) => ({
+								initialData: {
+									departments,
+									cellsByResolution: { 6: h3Data } as Partial<Record<H3Resolution, H3Data>>,
+									tripsWithCoords,
+									tripCount: tripsWithCoords.length,
+									totalKm: Math.round(tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000),
+									hexagonCount: Object.keys(h3Data.counts).length,
+								},
+								remainingLoads,
+							})),
+						);
 					}),
 					switchMap(({ initialData, remainingLoads }) =>
 						concat(
@@ -274,29 +298,46 @@ export class DemoService {
 			const x = Math.max(0, Math.min(1, t));
 			return a + (b - a) * x * x * (3 - 2 * x);
 		};
-		const baseAlt = 10 + Math.floor(rand() * 150);
-		// Altitude : part et revient à baseAlt, varie au milieu
-		const altKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) =>
-			k === 0 || k === NUM_KEYS ? baseAlt : baseAlt + (rand() - 0.4) * 80,
-		);
+		// Altitudes : vraies valeurs SRTM si disponibles, sinon synthétiques
+		const hasRealAlts = route.alts && route.alts.length === coords.length;
+		const baseAlt = 100 + Math.floor(rand() * 500);
+		const altKeys = hasRealAlts
+			? []
+			: Array.from({ length: NUM_KEYS + 1 }, (_, k) =>
+					k === 0 || k === NUM_KEYS ? baseAlt : baseAlt + rand() * 900,
+				);
 		// Vitesse : faible au départ et à l'arrivée, max au milieu
 		const speedKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) => {
 			if (k === 0 || k === NUM_KEYS) return avgSpeedKnots * 0.1;
 			const bell = Math.sin((k / NUM_KEYS) * Math.PI);
 			return avgSpeedKnots * (0.6 + bell * 0.8 + (rand() - 0.3) * 0.4);
 		});
-		// Angle : vertical (90°) au départ et à l'arrivée, inclinaison au milieu
-		const angleKeys = Array.from({ length: NUM_KEYS + 1 }, (_, k) =>
-			k === 0 || k === NUM_KEYS ? 90 : 90 + (rand() - 0.5) * 28,
-		);
+
+		// Cap compass calculé depuis les coords — requis pour la détection des virages
+		const toRad = (d: number) => (d * Math.PI) / 180;
+		const compassBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+			const dLon = toRad(lon2 - lon1);
+			const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+			const x =
+				Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+				Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+			return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
+		};
 
 		const positions: GeoRidePosition[] = coords.map(([lat, lon], idx) => {
 			const t = idx / Math.max(coords.length - 1, 1);
 			const seg = Math.min(Math.floor(t * NUM_KEYS), NUM_KEYS - 1);
 			const st = t * NUM_KEYS - seg;
-			const altitude = Math.round(Math.max(1, ss(altKeys[seg], altKeys[seg + 1], st)));
+			const altitude = hasRealAlts
+				? Math.max(1, route.alts![idx])
+				: Math.round(Math.max(1, ss(altKeys[seg], altKeys[seg + 1], st)));
 			const speedKnots = Math.max(0.3, ss(speedKeys[seg], speedKeys[seg + 1], st));
-			const angle = ss(angleKeys[seg], angleKeys[seg + 1], st);
+			const angle =
+				idx < coords.length - 1
+					? compassBearing(lat, lon, coords[idx + 1][0], coords[idx + 1][1])
+					: idx > 0
+						? compassBearing(coords[idx - 1][0], coords[idx - 1][1], lat, lon)
+						: 0;
 			return {
 				fixtime: new Date(startMs + idx * msPerCoord).toISOString(),
 				latitude: lat,
@@ -308,10 +349,10 @@ export class DemoService {
 			};
 		});
 
-		// Stats d'angle réalistes depuis les positions
-		const maxAngleVal = Math.max(...positions.map((p) => Math.abs(p.angle - 90)));
-		const maxLeftAngle = 90 - Math.min(...positions.map((p) => p.angle));
-		const maxRightAngle = Math.max(...positions.map((p) => p.angle)) - 90;
+		// Stats d'inclinaison synthétiques (angle = cap compass, pas lean angle)
+		const maxLean = 10 + rand() * 35;
+		const maxLeftAngle = rand() * maxLean;
+		const maxRightAngle = maxLean - maxLeftAngle;
 
 		// Calculer les vitesses réelles depuis les positions pour cohérence avec le graphique
 		const actualMaxSpeed = Math.max(...positions.map((p) => p.speed));
@@ -336,7 +377,7 @@ export class DemoService {
 			endAddress: route.end,
 			niceEndAddress: route.end,
 			staticImage: '',
-			maxAngle: 90 + maxAngleVal,
+			maxAngle: 90 + maxLean,
 			maxLeftAngle,
 			maxRightAngle,
 			averageAngle: 14,

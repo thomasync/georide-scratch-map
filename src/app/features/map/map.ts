@@ -533,7 +533,7 @@ export class Map {
 		}, 100);
 
 		if (!this.focusedDeptFeature && this.tripsWithCoords.length > 0) {
-			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			this.viewMyTrips();
 		}
 	}
 
@@ -569,7 +569,7 @@ export class Map {
 		if (!this.map) return;
 		const targetZoom = this.isMobile ? this.mapSettings.minZoomMob() : this.mapSettings.minZoomDesk();
 		if (this.map.getZoom() <= targetZoom + 0.1) {
-			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			this.viewMyTrips();
 		} else {
 			this.map.flyTo({ center: [2.3, 46.2], zoom: targetZoom });
 		}
@@ -1045,15 +1045,14 @@ export class Map {
 			const d = new Date(t.startTime);
 			return d > latest ? d : latest;
 		}, new Date(0));
-		this.logger.log('Map', '[applyDemoData] computing R7...');
-		const allR7 = this.h3.computeResolution(
-			this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
-			7,
-		);
-		this.logger.log('Map', '[applyDemoData] R7 done, computing new cells...');
-		this.computeNewCellsR7(allR7, latestTripDate);
-		this.logger.log('Map', '[applyDemoData] new cells done, updating countries...');
+		// R7 en arrière-plan via worker — libère le main thread dès le load
 		this.updateVisitedNeighboringCountries();
+		this.h3
+			.computeResolutionAsync(
+				this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
+				7,
+			)
+			.then((allR7) => this.computeNewCellsR7(allR7, latestTripDate));
 		this.logger.log('Map', '[applyDemoData] countries done, seasons...');
 		this.visitedSeasons.set(
 			SEASONS.filter((s) =>
@@ -1373,7 +1372,7 @@ export class Map {
 				}),
 			)
 			.subscribe({
-				next: ({ allTrips, departments, remainingCountries }) => {
+				next: async ({ allTrips, departments, remainingCountries }) => {
 					this.departments = departments;
 					this.logger.log('Map', `total trips: ${allTrips.length}`);
 					this.tripCount.set(allTrips.length);
@@ -1402,7 +1401,7 @@ export class Map {
 						date: t.startTime.substring(0, 10),
 					}));
 					const res = this.mapSettings.deptResolution() as H3Resolution;
-					this.cellsByResolution[res] = this.h3.computeResolution(tripData, res);
+					this.cellsByResolution[res] = await this.h3.computeResolutionAsync(tripData, res);
 					this.logger.log(
 						'Map',
 						`resolution ${res}: ${Object.keys(this.cellsByResolution[res].counts).length} cells`,
@@ -1414,14 +1413,18 @@ export class Map {
 						).length,
 					);
 
-					const allR7 = this.h3.computeResolution(
-						this.allTripsWithCoords.map((t) => ({ coords: t.coords, date: t.startTime.substring(0, 10) })),
-						7,
-					);
-					this.computeNewCellsR7(allR7);
-
 					this.addLayers();
 					this.initViewAfterLoad();
+
+					this.h3
+						.computeResolutionAsync(
+							this.allTripsWithCoords.map((t) => ({
+								coords: t.coords,
+								date: t.startTime.substring(0, 10),
+							})),
+							7,
+						)
+						.then((allR7) => this.computeNewCellsR7(allR7));
 
 					// Phase 2 : charger les pays restants après que la carte est visible
 					if (remainingCountries?.length) {
@@ -2993,8 +2996,7 @@ export class Map {
 		if (Object.keys(this.tripAltProfiles).length > 0) {
 			this.colsMode.set(true);
 			this.showCols();
-			if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
-				this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+			if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 			return;
 		}
 
@@ -3017,8 +3019,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.colsMode.set(true);
 				this.showCols();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
-					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 			},
 			error: (err) => {
 				this.logger.error('Elevation', 'sync failed', err);
@@ -3324,8 +3325,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.turnsMode.set(true);
 				this.showTurns();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
-					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 			},
 			error: (err) => {
 				this.logger.error('Turns', 'sync failed', err);
@@ -3424,8 +3424,7 @@ export class Map {
 		}
 		this.stopsMode.set(true);
 		this.showStops();
-		if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
-			this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+		if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 	}
 
 	private showStops(): void {
@@ -3480,8 +3479,7 @@ export class Map {
 				this.elevationLoading.set(false);
 				this.speedMode.set(true);
 				this.showSpeed();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13)
-					this.fitToVisited(this.tripsWithCoords.map((t) => t.coords));
+				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 			},
 			error: (err) => {
 				this.logger.error('Speed', 'sync failed', err);
@@ -3976,9 +3974,9 @@ export class Map {
 			? { top: 20, right: 20, bottom: Math.round(window.innerHeight * 0.62), left: 20 }
 			: undefined;
 		if (this.map.getZoom() < 12) {
-			this.map.easeTo({ center, zoom: 14, duration: 400, padding });
+			this.map.easeTo({ center, zoom: 14, duration: 400, ...(padding && { padding }) });
 		} else {
-			this.map.jumpTo({ center, padding });
+			this.map.jumpTo({ center, ...(padding && { padding }) });
 		}
 	}
 

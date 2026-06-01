@@ -43,12 +43,25 @@ export class H3Service {
 	private db = inject(DatabaseService);
 	private deptCacheDirty = false;
 
+	private worker = new Worker(new URL('../workers/h3-compute.worker', import.meta.url), { type: 'module' });
+	private pendingWorkerRequests = new Map<number, (data: H3Data) => void>();
+	private workerRequestId = 0;
+
 	constructor() {
 		this.db.kvGet<[string, string[]][]>(DEPT_CELLS_STORAGE_KEY).subscribe((entries) => {
 			if (!entries) return;
 			for (const [k, v] of entries) this.deptCellsCache.set(k, v);
 			this.logger.log('H3', `loaded ${entries.length} dept cell entries from IDB`);
 		});
+
+		this.worker.onmessage = ({ data }: MessageEvent<{ result: H3Data; id: number; ms: number }>) => {
+			this.logger.log('H3', `worker res done in ${data.ms}ms`);
+			const resolve = this.pendingWorkerRequests.get(data.id);
+			if (resolve) {
+				this.pendingWorkerRequests.delete(data.id);
+				resolve(data.result);
+			}
+		};
 	}
 
 	private flushDeptCellsToStorage(): void {
@@ -61,6 +74,17 @@ export class H3Service {
 	invalidateEnrichedCache(): void {
 		this.logger.log('H3', 'invalidateEnrichedCache');
 		this.enrichedDeptCache.clear();
+	}
+
+	computeResolutionAsync(
+		trips: { coords: [number, number][]; date: string }[],
+		resolution: H3Resolution,
+	): Promise<H3Data> {
+		const id = this.workerRequestId++;
+		return new Promise((resolve) => {
+			this.pendingWorkerRequests.set(id, resolve);
+			this.worker.postMessage({ trips, resolution, id });
+		});
 	}
 
 	// Compute H3 data for a single resolution — use for lazy computation
