@@ -21,7 +21,8 @@ import { DatabaseService } from './database';
 import { Trip } from '../models/trip';
 import { GeoRidePosition } from './georide-api';
 
-const DEMO_H3_CACHE_KEY = 'demo_h3_res6';
+const demoCacheKey = (trips: { distanceM: number }[]) =>
+	`demo_h3_res6_${trips.length}_${trips.reduce((s, t) => s + t.distanceM, 0)}`;
 
 interface DemoTripData {
 	start: string;
@@ -220,10 +221,11 @@ export class DemoService {
 							coords: t.coords,
 							date: t.startTime.substring(0, 10),
 						}));
+						const cacheKey = demoCacheKey(demoTrips);
 						const compute$ = from(this.h3.computeResolutionAsync(tripData, 6)).pipe(
-							tap((h3Data) => this.db.kvSet(DEMO_H3_CACHE_KEY, h3Data).subscribe()),
+							tap((h3Data) => this.db.kvSet(cacheKey, h3Data).subscribe()),
 						);
-						return this.db.kvGet<H3Data>(DEMO_H3_CACHE_KEY).pipe(
+						return this.db.kvGet<H3Data>(cacheKey).pipe(
 							tap((cached) =>
 								this.logger.log('Demo', cached ? 'H3 res=6 from cache' : 'H3 res=6 computing...'),
 							),

@@ -23,7 +23,8 @@
       "mcp__chrome-devtools__list_console_messages",
       "Read(//Users/thomasync/Downloads/**)",
       "Bash(sort -t',' -k2 -rn)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); t=d[0]; print\\('keys:', list\\(t.keys\\(\\)\\)\\); print\\('coords len:', len\\(t['coords']\\)\\); print\\('first coord:', t['coords'][0]\\); print\\('total trips:', len\\(d\\)\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); t=d[0]; print\\('keys:', list\\(t.keys\\(\\)\\)\\); print\\('coords len:', len\\(t['coords']\\)\\); print\\('first coord:', t['coords'][0]\\); print\\('total trips:', len\\(d\\)\\)\")",
+      "Bash(python3 -)"
     ]
   }
 }
