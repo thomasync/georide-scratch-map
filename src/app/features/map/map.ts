@@ -1329,7 +1329,8 @@ export class Map {
 				switchMap(([localTrips, lastSyncAt, lastClearedTs, recapDismissedTs]) => {
 					this.lastClearedTs = lastClearedTs ?? 0;
 					this.recapDismissedTs = recapDismissedTs ?? 0;
-					if (lastSyncAt !== null && localTrips.length > 0) {
+					const ONE_HOUR = 60 * 60 * 1000;
+					if (lastSyncAt !== null && localTrips.length > 0 && Date.now() - lastSyncAt < ONE_HOUR) {
 						return of(localTrips);
 					}
 
@@ -1337,7 +1338,9 @@ export class Map {
 					to.setHours(23, 59, 59, 999);
 
 					const from =
-						lastSyncAt && localTrips.length > 0 ? new Date(lastSyncAt - 24 * 60 * 60 * 1000) : null;
+						lastSyncAt !== null && localTrips.length > 0
+							? new Date(lastSyncAt - 24 * 60 * 60 * 1000)
+							: null;
 
 					return this.api.getTrackers().pipe(
 						switchMap((trackers) => {
@@ -1378,7 +1381,7 @@ export class Map {
 							const merged = [...localTrips.filter((t) => !newIndexIds.has(t.indexId)), ...mergedNew];
 							return forkJoin([
 								this.db.upsertTrips(newTrips),
-								this.db.kvSet('lastSyncAt', Date.now(), 60 * 60 * 1000),
+								this.db.kvSet('lastSyncAt', Date.now()),
 							]).pipe(rxMap(() => merged));
 						}),
 					);
