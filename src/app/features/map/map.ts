@@ -619,9 +619,27 @@ export class Map {
 					{ value: `${fs.pct}%`, label: 'exploré' },
 				]
 			: [
-					{ value: String(this.tripCount()), label: 'trajets' },
+					{ value: String(this.tripCount()), label: this.tripCount() === 1 ? 'trajet' : 'trajets' },
 					{ value: this.totalKmFormatted(), label: 'km' },
-					{ value: String(this.hexagonCount()), label: 'hex.' },
+					...(this.countryCountStat() >= 2
+						? [{ value: String(this.countryCountStat()), label: 'pays' }]
+						: []),
+					...(this.cityCountStat() > 0
+						? [
+								{
+									value: String(this.cityCountStat()),
+									label: this.cityCountStat() === 1 ? 'ville' : 'villes',
+								},
+							]
+						: []),
+					...(this.fullRegionCount() > 0
+						? [
+								{
+									value: String(this.fullRegionCount()),
+									label: this.fullRegionCount() === 1 ? 'région' : 'régions',
+								},
+							]
+						: []),
 				];
 
 		const maskVisible = this.map.getLayoutProperty('dept-focus-mask', 'visibility') === 'visible';

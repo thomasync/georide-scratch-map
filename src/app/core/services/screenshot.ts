@@ -48,12 +48,12 @@ export class ScreenshotService {
 		const xScale = w / mapRect.width;
 		const yScale = h / mapRect.height;
 
-		const valSize = 20,
-			lblSize = 13,
-			lineGap = 5,
-			padX = 41,
-			padY = 14,
-			itemGap = 14;
+		const valSize = 15,
+			lblSize = 10,
+			lineGap = 3,
+			padX = 28,
+			padY = 10,
+			itemGap = 10;
 		const mc = document.createElement('canvas').getContext('2d')!;
 		mc.font = `bold ${valSize}px system-ui,sans-serif`;
 		const valWidths = stats.items.map((i) => mc.measureText(i.value).width);
