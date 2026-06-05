@@ -683,3 +683,208 @@
 }
 
 // Popup styles → déplacés dans styles.scss (global)
+
+// Feature: share panel
+.share-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: rgba(0, 0, 0, 0.05);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	backdrop-filter: blur(4px);
+}
+
+.share-modal {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	padding: 1.25rem 1.5rem;
+	width: min(90vw, 380px);
+	max-height: 90vh;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0.85rem;
+}
+
+.share-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.share-title {
+	font-weight: 700;
+	font-size: 1rem;
+	color: var(--text);
+}
+
+.share-preview-wrap {
+	display: flex;
+	justify-content: center;
+}
+
+.share-preview-img {
+	width: 100%;
+	max-width: 280px;
+	aspect-ratio: 1;
+	border-radius: 0.5rem;
+	object-fit: cover;
+	cursor: context-menu;
+}
+
+.share-toggle-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	cursor: pointer;
+}
+
+.share-toggle-input {
+	accent-color: #fdb300;
+	width: 1rem;
+	height: 1rem;
+	cursor: pointer;
+}
+
+.share-toggle-label {
+	font-size: 0.875rem;
+	color: var(--text);
+}
+
+.share-sep {
+	height: 1px;
+	background: var(--border);
+	margin: 0 -0.25rem;
+}
+
+.share-link-title {
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.share-tabs {
+	display: flex;
+	gap: 0.4rem;
+}
+
+.share-tab {
+	flex: 1;
+	padding: 0.45rem 0.5rem;
+	border-radius: 0.5rem;
+	border: 1px solid var(--border);
+	background: none;
+	color: var(--text);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 0.85rem;
+	transition:
+		background 0.15s,
+		color 0.15s;
+
+	&.active {
+		background: #fdb300;
+		color: #000;
+		border-color: #fdb300;
+		font-weight: 600;
+	}
+
+	@media (hover: hover) {
+		&:not(.active):hover {
+			background: var(--border);
+		}
+	}
+}
+
+.share-generate-btn {
+	padding: 0.55rem 1rem;
+	border-radius: 0.5rem;
+	border: none;
+	background: #fdb300;
+	color: #000;
+	font-weight: 600;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 0.875rem;
+	transition: opacity 0.15s;
+
+	&:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+}
+
+.share-country-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.share-country-label {
+	font-size: 0.8rem;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.share-country-select {
+	flex: 1;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	padding: 0.35rem 0.55rem;
+	font-family: inherit;
+	font-size: 0.85rem;
+}
+
+.share-warning {
+	font-size: 0.78rem;
+	color: #fdb300;
+	background: rgba(253, 179, 0, 0.08);
+	border: 1px solid rgba(253, 179, 0, 0.25);
+	border-radius: 0.5rem;
+	padding: 0.45rem 0.7rem;
+}
+
+.share-url-row {
+	display: flex;
+	gap: 0.4rem;
+}
+
+.share-url-input {
+	flex: 1;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	padding: 0.4rem 0.6rem;
+	font-size: 0.72rem;
+	font-family: monospace;
+	min-width: 0;
+}
+
+.share-copy-btn {
+	padding: 0.4rem 0.8rem;
+	border-radius: 0.5rem;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text);
+	cursor: pointer;
+	font-size: 0.8rem;
+	white-space: nowrap;
+	font-family: inherit;
+	transition: background 0.15s;
+
+	@media (hover: hover) {
+		&:hover {
+			background: var(--border);
+		}
+	}
+}
+
+// Feature: share view badge

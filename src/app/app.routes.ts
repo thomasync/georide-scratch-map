@@ -16,4 +16,8 @@ export const routes: Routes = [
 		path: 'demo',
 		loadComponent: () => import('./features/map/map').then((m) => m.Map),
 	},
+	{
+		path: 'share',
+		loadComponent: () => import('./features/map/map').then((m) => m.Map),
+	},
 ];

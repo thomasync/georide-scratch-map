@@ -5,6 +5,20 @@ export interface ScreenshotStats {
 	items: { value: string; label: string }[];
 }
 
+export interface WrappedCardData {
+	totalKm: number;
+	totalTrips: number;
+	ridingDays: number;
+	longestStreak: number;
+	topDaysOfWeek: string[];
+	departureHour: number | null;
+	bestMonth: { km: number; label: string } | null;
+	topDepts: { name: string; pct: number }[];
+	countryCount: number;
+	fullRegionCount: number;
+	filterLabel: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ScreenshotService {
 	async capture(map: maplibregl.Map, stats: ScreenshotStats): Promise<void> {
@@ -32,6 +46,170 @@ export class ScreenshotService {
 			a.click();
 			URL.revokeObjectURL(url);
 		});
+	}
+
+	cropSquare(mapCanvas: HTMLCanvasElement): HTMLCanvasElement {
+		const w = mapCanvas.width;
+		const h = mapCanvas.height;
+		const size = Math.min(w, h);
+		const offsetX = Math.floor((w - size) / 2);
+		const offsetY = Math.floor((h - size) / 2);
+		const canvas = document.createElement('canvas');
+		canvas.width = size;
+		canvas.height = size;
+		const ctx = canvas.getContext('2d')!;
+		ctx.drawImage(mapCanvas, offsetX, offsetY, size, size, 0, 0, size, size);
+		return canvas;
+	}
+
+	renderWrappedToCanvas(
+		sourceCanvas: HTMLCanvasElement,
+		data: WrappedCardData,
+		showStats: boolean,
+		outputSize = 600,
+	): HTMLCanvasElement {
+		const canvas = document.createElement('canvas');
+		canvas.width = outputSize;
+		canvas.height = outputSize;
+		const ctx = canvas.getContext('2d')!;
+
+		// Fond : crop carré de la map, mis à l'échelle outputSize×outputSize
+		const src = sourceCanvas;
+		const srcSize = Math.min(src.width, src.height);
+		const srcX = Math.floor((src.width - srcSize) / 2);
+		const srcY = Math.floor((src.height - srcSize) / 2);
+		ctx.drawImage(src, srcX, srcY, srcSize, srcSize, 0, 0, outputSize, outputSize);
+
+		if (!showStats) return canvas;
+
+		// Voile sombre pour lisibilité
+		ctx.fillStyle = 'rgba(0,0,0,0.45)';
+		ctx.fillRect(0, 0, outputSize, outputSize);
+
+		const s = outputSize / 600;
+
+		const txt = (
+			text: string,
+			x: number,
+			y: number,
+			size: number,
+			color: string,
+			align: CanvasTextAlign = 'center',
+			weight = 'normal',
+		) => {
+			ctx.font = `${weight} ${Math.round(size * s)}px system-ui,sans-serif`;
+			ctx.fillStyle = color;
+			ctx.textAlign = align;
+			ctx.fillText(text, x * s, y * s);
+		};
+
+		// Header
+		txt(`GeoRide Scratch Map · ${data.filterLabel}`, 300, 48, 18, '#fdb300', 'center', '600');
+
+		// Km principal
+		const kmFormatted =
+			data.totalKm >= 1000 ? `${(data.totalKm / 1000).toFixed(1).replace('.', ',')} k` : String(data.totalKm);
+		txt(`${kmFormatted} km`, 300, 125, 68, '#ffffff', 'center', 'bold');
+		txt('parcourus', 300, 158, 15, 'rgba(255,255,255,0.55)');
+
+		// 3 pilules stat
+		const pills = [
+			{ value: String(data.totalTrips), label: 'trajets' },
+			{ value: String(data.ridingDays), label: 'jours' },
+			{ value: `${data.longestStreak}j`, label: 'streak' },
+		];
+		const pillW = 140 * s;
+		const pillH = 52 * s;
+		const pillY = 185 * s;
+		const pillGap = 15 * s;
+		const pillsTotalW = pills.length * pillW + (pills.length - 1) * pillGap;
+		const pillsStartX = (outputSize - pillsTotalW) / 2;
+
+		pills.forEach((pill, i) => {
+			const px = pillsStartX + i * (pillW + pillGap);
+			ctx.fillStyle = 'rgba(0,0,0,0.4)';
+			this.roundRect(ctx, px, pillY, pillW, pillH, 10 * s);
+			ctx.fill();
+			ctx.font = `bold ${Math.round(15 * s)}px system-ui,sans-serif`;
+			ctx.fillStyle = '#ffffff';
+			ctx.textAlign = 'center';
+			ctx.fillText(pill.value, px + pillW / 2, pillY + 20 * s);
+			ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
+			ctx.fillStyle = 'rgba(255,255,255,0.55)';
+			ctx.fillText(pill.label.toUpperCase(), px + pillW / 2, pillY + 38 * s);
+		});
+
+		// Top départements
+		if (data.topDepts.length > 0) {
+			txt('TOP DÉPARTEMENTS', 300, 270, 11, 'rgba(255,255,255,0.4)');
+			const barW = 320 * s;
+			const barH = 6 * s;
+			const barX = (outputSize - barW) / 2;
+			data.topDepts.slice(0, 3).forEach((dept, i) => {
+				const by = (290 + i * 26) * s;
+				// fond barre
+				ctx.fillStyle = 'rgba(255,255,255,0.15)';
+				this.roundRect(ctx, barX, by, barW, barH, barH / 2);
+				ctx.fill();
+				// remplissage
+				const fillW = (dept.pct / 100) * barW;
+				ctx.fillStyle = '#fdb300';
+				this.roundRect(ctx, barX, by, Math.max(fillW, barH), barH, barH / 2);
+				ctx.fill();
+				// label
+				const labelX = barX - 5 * s;
+				ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
+				ctx.fillStyle = 'rgba(255,255,255,0.8)';
+				ctx.textAlign = 'right';
+				ctx.fillText(dept.name, labelX, by + barH);
+				ctx.textAlign = 'left';
+				ctx.fillText(`${dept.pct}%`, barX + barW + 5 * s, by + barH);
+			});
+		}
+
+		// Fun facts
+		const facts: string[] = [];
+		if (data.topDaysOfWeek?.length) {
+			facts.push(`${data.topDaysOfWeek[0]}, ton jour préféré`);
+		}
+		if (data.departureHour !== null && data.departureHour !== undefined) {
+			facts.push(`Départ type : ${data.departureHour}h`);
+		}
+		if (data.bestMonth) {
+			const km =
+				data.bestMonth.km >= 1000
+					? `${Math.round(data.bestMonth.km / 1000)} k`
+					: String(Math.round(data.bestMonth.km));
+			facts.push(`Meilleur mois : ${data.bestMonth.label} (${km} km)`);
+		}
+		const extraParts: string[] = [];
+		if (data.countryCount > 1) extraParts.push(`${data.countryCount} pays`);
+		if (data.fullRegionCount > 0)
+			extraParts.push(`${data.fullRegionCount} dept${data.fullRegionCount > 1 ? 's' : ''} à +50%`);
+		if (extraParts.length) facts.push(extraParts.join(' · '));
+
+		facts.forEach((fact, i) => {
+			txt(fact, 300, 390 + i * 26, 13, 'rgba(255,255,255,0.8)');
+		});
+
+		// Footer
+		txt('scratch-map.georide.com', 300, 585, 11, 'rgba(255,255,255,0.3)');
+
+		return canvas;
+	}
+
+	private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.lineTo(x + w - r, y);
+		ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+		ctx.lineTo(x + w, y + h - r);
+		ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+		ctx.lineTo(x + r, y + h);
+		ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+		ctx.lineTo(x, y + r);
+		ctx.quadraticCurveTo(x, y, x + r, y);
+		ctx.closePath();
 	}
 
 	private async drawStatsOverlay(

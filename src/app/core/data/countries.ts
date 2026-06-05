@@ -9,7 +9,7 @@ export interface Country {
 }
 
 export const COUNTRIES: Country[] = [
-	{ code: 'FR', name: 'France', flag: '🇫🇷' },
+	{ code: 'FR', name: 'France', flag: '🇫🇷', minLat: 41.3, maxLat: 51.2, minLon: -5.2, maxLon: 9.6 },
 	{ code: 'ES', name: 'Espagne', flag: '🇪🇸', minLat: 35.9, maxLat: 43.8, minLon: -9.3, maxLon: 4.4 },
 	{ code: 'AD', name: 'Andorre', flag: '🇦🇩', minLat: 42.42, maxLat: 42.66, minLon: 1.4, maxLon: 1.8 },
 	{ code: 'PT', name: 'Portugal', flag: '🇵🇹', minLat: 36.8, maxLat: 42.2, minLon: -9.5, maxLon: -6.2 },

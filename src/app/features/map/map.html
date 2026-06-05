@@ -8,169 +8,168 @@
 }
 
 <!-- Feature: controls -->
-<div class="controls">
-	<!-- Mobile : bouton menu (en premier) -->
-	<div class="ctrl-menu-container ctrl-mobile-only">
-		<button class="ctrl-btn" (click)="showControlMenu.set(!showControlMenu())" title="Menu">
-			<svg
-				class="ctrl-icon"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="#fdb300"
-				stroke-width="2.5"
-				stroke-linecap="round"
-			>
-				<line x1="4" y1="7" x2="20" y2="7" />
-				<line x1="4" y1="12" x2="20" y2="12" />
-				<line x1="4" y1="17" x2="20" y2="17" />
-			</svg>
-		</button>
-		@if (showControlMenu()) {
-			<div class="ctrl-menu-backdrop" (click)="showControlMenu.set(false)"></div>
-			<div class="ctrl-menu">
-				<button
-					class="ctrl-menu-item"
-					(click)="theme.toggle(); showControlMenu.set(false)"
-					[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+@if (!isShare) {
+	<div class="controls">
+		<!-- Mobile : bouton menu (en premier) -->
+		<div class="ctrl-menu-container ctrl-mobile-only">
+			<button class="ctrl-btn" (click)="showControlMenu.set(!showControlMenu())" title="Menu">
+				<svg
+					class="ctrl-icon"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="#fdb300"
+					stroke-width="2.5"
+					stroke-linecap="round"
 				>
-					<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-menu-icon" />
-					<span>{{ theme.isDark() ? 'Mode clair' : 'Mode sombre' }}</span>
-				</button>
-				<button
-					class="ctrl-menu-item"
-					(click)="takeScreenshot(); showControlMenu.set(false)"
-					title="Télécharger une capture"
-				>
-					<img src="camera.png" alt="" class="ctrl-menu-icon" />
-					<span>Capture d'écran</span>
-				</button>
-				<button
-					class="ctrl-menu-item"
-					(click)="openStatsModal(); showControlMenu.set(false)"
-					title="Récapitulatif"
-				>
-					<img src="compass.png" alt="" class="ctrl-menu-icon" />
-					<span>Récapitulatif</span>
-				</button>
-			</div>
-		}
-	</div>
-
-	<!-- Desktop uniquement -->
-	<button
-		class="ctrl-btn ctrl-desktop-only"
-		(click)="theme.toggle()"
-		[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
-	>
-		<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
-	</button>
-
-	<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
-		<button class="ctrl-btn" title="Vue complète" (click)="onWorldMapClick()">
-			<img src="world_map.png" alt="" class="ctrl-icon" />
-		</button>
-		@if (showViewMenu()) {
-			<div class="ctrl-menu" (click)="$event.stopPropagation()">
-				<button class="ctrl-menu-item" (click)="viewMyTrips(); showViewMenu.set(false)">
-					<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🗺️</span>
-					<span>Mes trajets</span>
-				</button>
-
-				<div class="ctrl-menu-sep"></div>
-
-				<div class="ctrl-menu-cat">Modes</div>
-				<div class="ctrl-menu-section ctrl-menu-section--modes">
+					<line x1="4" y1="7" x2="20" y2="7" />
+					<line x1="4" y1="12" x2="20" y2="12" />
+					<line x1="4" y1="17" x2="20" y2="17" />
+				</svg>
+			</button>
+			@if (showControlMenu()) {
+				<div class="ctrl-menu-backdrop" (click)="showControlMenu.set(false)"></div>
+				<div class="ctrl-menu">
 					<button
 						class="ctrl-menu-item"
-						[class.active]="colsMode()"
-						[disabled]="elevationLoading()"
-						(click)="toggleColsMode(); showViewMenu.set(false)"
+						(click)="theme.toggle(); showControlMenu.set(false)"
+						[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
 					>
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
-						<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
+						<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-menu-icon" />
+						<span>{{ theme.isDark() ? 'Mode clair' : 'Mode sombre' }}</span>
 					</button>
 					<button
 						class="ctrl-menu-item"
-						[class.active]="turnsMode()"
-						[disabled]="elevationLoading()"
-						(click)="toggleTurnsMode(); showViewMenu.set(false)"
+						(click)="openSharePanel(); showControlMenu.set(false)"
+						title="Partager"
 					>
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">↩️</span>
-						<span>{{ elevationLoading() && turnsMode() ? 'Chargement…' : 'Virages' }}</span>
+						<img src="link.png" alt="" class="ctrl-menu-icon" />
+						<span>Partager</span>
 					</button>
 					<button
 						class="ctrl-menu-item"
-						[class.active]="stopsMode()"
-						[disabled]="elevationLoading()"
-						(click)="toggleStopsMode(); showViewMenu.set(false)"
+						(click)="openStatsModal(); showControlMenu.set(false)"
+						title="Récapitulatif"
 					>
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">📍</span>
-						<span>Arrêts</span>
-					</button>
-					<button
-						class="ctrl-menu-item"
-						[class.active]="speedMode()"
-						[disabled]="elevationLoading()"
-						(click)="toggleSpeedMode(); showViewMenu.set(false)"
-					>
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⚡</span>
-						<span>Vitesse</span>
+						<img src="compass.png" alt="" class="ctrl-menu-icon" />
+						<span>Récapitulatif</span>
 					</button>
 				</div>
+			}
+		</div>
 
-				<div class="ctrl-menu-sep"></div>
+		<!-- Desktop uniquement -->
+		<button
+			class="ctrl-btn ctrl-desktop-only"
+			(click)="theme.toggle()"
+			[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+		>
+			<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
+		</button>
 
-				<div class="ctrl-menu-cat">Saisons</div>
-				<div class="ctrl-menu-section ctrl-menu-section--seasons">
-					@for (season of visitedSeasons(); track season.name) {
+		<div class="ctrl-menu-container" (mouseenter)="openViewMenu()" (mouseleave)="closeViewMenu()">
+			<button class="ctrl-btn" title="Vue complète" (click)="onWorldMapClick()">
+				<img src="world_map.png" alt="" class="ctrl-icon" />
+			</button>
+			@if (showViewMenu()) {
+				<div class="ctrl-menu" (click)="$event.stopPropagation()">
+					<button class="ctrl-menu-item" (click)="viewMyTrips(); showViewMenu.set(false)">
+						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🗺️</span>
+						<span>Mes trajets</span>
+					</button>
+
+					<div class="ctrl-menu-sep"></div>
+
+					<div class="ctrl-menu-cat">Modes</div>
+					<div class="ctrl-menu-section ctrl-menu-section--modes">
 						<button
 							class="ctrl-menu-item"
-							[class.active]="seasonFilter()?.name === season.name"
-							(click)="selectSeason(season); showViewMenu.set(false)"
+							[class.active]="colsMode()"
+							[disabled]="elevationLoading()"
+							(click)="toggleColsMode(); showViewMenu.set(false)"
 						>
-							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ season.emoji }}</span>
-							<span>{{ season.name }}</span>
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⛰️</span>
+							<span>{{ elevationLoading() ? 'Chargement…' : 'Cols' }}</span>
 						</button>
-					}
-				</div>
-
-				<div class="ctrl-menu-sep"></div>
-
-				<div class="ctrl-menu-cat">Pays</div>
-				<div class="ctrl-menu-section ctrl-menu-section--countries">
-					<button class="ctrl-menu-item" (click)="viewFrance(); showViewMenu.set(false)">
-						<span class="ctrl-menu-icon ctrl-menu-icon--emoji">🇫🇷</span>
-						<span>France</span>
-					</button>
-					@for (country of visitedNeighboringCountries(); track country.code) {
-						<button class="ctrl-menu-item" (click)="viewCountry(country); showViewMenu.set(false)">
-							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ country.flag }}</span>
-							<span>{{ country.name }}</span>
+						<button
+							class="ctrl-menu-item"
+							[class.active]="turnsMode()"
+							[disabled]="elevationLoading()"
+							(click)="toggleTurnsMode(); showViewMenu.set(false)"
+						>
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">↩️</span>
+							<span>{{ elevationLoading() && turnsMode() ? 'Chargement…' : 'Virages' }}</span>
 						</button>
-					}
+						<button
+							class="ctrl-menu-item"
+							[class.active]="stopsMode()"
+							[disabled]="elevationLoading()"
+							(click)="toggleStopsMode(); showViewMenu.set(false)"
+						>
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">📍</span>
+							<span>Arrêts</span>
+						</button>
+						<button
+							class="ctrl-menu-item"
+							[class.active]="speedMode()"
+							[disabled]="elevationLoading()"
+							(click)="toggleSpeedMode(); showViewMenu.set(false)"
+						>
+							<span class="ctrl-menu-icon ctrl-menu-icon--emoji">⚡</span>
+							<span>Vitesse</span>
+						</button>
+					</div>
+
+					<div class="ctrl-menu-sep"></div>
+
+					<div class="ctrl-menu-cat">Saisons</div>
+					<div class="ctrl-menu-section ctrl-menu-section--seasons">
+						@for (season of visitedSeasons(); track season.name) {
+							<button
+								class="ctrl-menu-item"
+								[class.active]="seasonFilter()?.name === season.name"
+								(click)="selectSeason(season); showViewMenu.set(false)"
+							>
+								<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ season.emoji }}</span>
+								<span>{{ season.name }}</span>
+							</button>
+						}
+					</div>
+
+					<div class="ctrl-menu-sep"></div>
+
+					<div class="ctrl-menu-cat">Pays</div>
+					<div class="ctrl-menu-section ctrl-menu-section--countries">
+						@for (country of visitedNeighboringCountries(); track country.code) {
+							<button class="ctrl-menu-item" (click)="viewCountry(country); showViewMenu.set(false)">
+								<span class="ctrl-menu-icon ctrl-menu-icon--emoji">{{ country.flag }}</span>
+								<span>{{ country.name }}</span>
+							</button>
+						}
+					</div>
 				</div>
-			</div>
+			}
+		</div>
+
+		<button class="ctrl-btn ctrl-desktop-only" (click)="openSharePanel()" title="Partager">
+			<img src="link.png" alt="" class="ctrl-icon" />
+		</button>
+		<button class="ctrl-btn ctrl-desktop-only" (click)="openStatsModal()" title="Récapitulatif">
+			<img src="compass.png" alt="" class="ctrl-icon" />
+		</button>
+
+		@if (newCellsRecapData() && !showNewCellsRecap()) {
+			<button class="ctrl-btn" (click)="reopenRecap()" title="Voir les nouveaux lieux">
+				<img src="recap.png" alt="" class="ctrl-icon" />
+			</button>
+		}
+		@if (isDemo) {
+			<button class="ctrl-btn" (click)="goToLogin()" title="Se connecter">
+				<img src="user.png" alt="" class="ctrl-icon" />
+			</button>
 		}
 	</div>
-
-	<button class="ctrl-btn ctrl-desktop-only" (click)="takeScreenshot()" title="Télécharger une capture">
-		<img src="camera.png" alt="" class="ctrl-icon" />
-	</button>
-	<button class="ctrl-btn ctrl-desktop-only" (click)="openStatsModal()" title="Récapitulatif">
-		<img src="compass.png" alt="" class="ctrl-icon" />
-	</button>
-
-	@if (newCellsRecapData() && !showNewCellsRecap()) {
-		<button class="ctrl-btn" (click)="reopenRecap()" title="Voir les nouveaux lieux">
-			<img src="recap.png" alt="" class="ctrl-icon" />
-		</button>
-	}
-	@if (isDemo) {
-		<button class="ctrl-btn" (click)="goToLogin()" title="Se connecter">
-			<img src="user.png" alt="" class="ctrl-icon" />
-		</button>
-	}
-</div>
+}
+<!-- end @if (!isShare) controls -->
 
 @if (loading()) {
 	<div class="overlay-loading" [class.hiding]="loadingHiding()">
@@ -200,7 +199,39 @@
 	</div>
 }
 
-@if (!loading() && !error()) {
+@if (!loading() && !error() && isShare) {
+	<!-- Share mode : stats du département focalisé (pas de filtres) -->
+	<div class="bottom-ui">
+		<div class="stats-row">
+			<div class="stats-panel">
+				@if (focusStats(); as fs) {
+					@if (fs.name) {
+						<div class="stat">
+							<span class="stat-value stat-dept-name">{{ fs.name }}</span>
+							<span class="stat-label">{{ fs.countryName }}</span>
+						</div>
+						<span class="stat-sep">·</span>
+					}
+					<div class="stat">
+						<span class="stat-value">{{ fs.pct }}%</span>
+						<span class="stat-label">exploré</span>
+					</div>
+					@if (shareDateLabel()) {
+						<span class="stat-sep">·</span>
+					}
+				}
+				@if (shareDateLabel()) {
+					<div class="stat">
+						<span class="stat-value stat-dept-name">{{ shareDateLabel() }}</span>
+						<span class="stat-label">partagé le</span>
+					</div>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+@if (!loading() && !error() && !isShare) {
 	<!-- Feature: bottom UI (filter bar + stats panel) -->
 	<div class="bottom-ui" [class.bottom-ui--hidden]="showTripPanel()">
 		<!-- Stats row : streak badge + stats panel côte à côte -->
@@ -403,6 +434,81 @@
 		(applyFilter)="onStatsApplyFilter($event)"
 		(fuelTypeChange)="onFuelTypeChange($event)"
 	/>
+}
+
+@if (showSharePanel()) {
+	<div class="share-overlay" (click)="closeSharePanel()">
+		<div class="share-modal" (click)="$event.stopPropagation()">
+			<div class="share-header">
+				<span class="share-title">Partager</span>
+				<button class="recap-close" (click)="closeSharePanel()">✕</button>
+			</div>
+
+			<!-- Preview image -->
+			@if (sharePreviewSrc()) {
+				<div class="share-preview-wrap">
+					<img
+						class="share-preview-img"
+						[src]="sharePreviewSrc()"
+						alt="Aperçu"
+						title="Clic droit → Enregistrer l'image"
+					/>
+				</div>
+			}
+
+			<!-- Toggle stats -->
+			<label class="share-toggle-row">
+				<input
+					type="checkbox"
+					class="share-toggle-input"
+					[checked]="shareShowStats()"
+					(change)="onShareStatsToggle()"
+				/>
+				<span class="share-toggle-label">Afficher les stats</span>
+			</label>
+
+			<div class="share-sep"></div>
+
+			<!-- Lien URL -->
+			<div class="share-link-title">Partager le lien</div>
+			<div class="share-tabs">
+				<button class="share-tab" [class.active]="shareMode() === 'dept'" (click)="onShareModeChange('dept')">
+					Départements
+				</button>
+				<button class="share-tab" [class.active]="shareMode() === 'hex'" (click)="onShareModeChange('hex')">
+					Hexagones
+				</button>
+			</div>
+
+			<button class="share-generate-btn" (click)="buildShareUrl()" [disabled]="shareLoading()">
+				{{ shareLoading() ? 'Génération…' : 'Générer le lien' }}
+			</button>
+
+			@if (shareStep() === 3) {
+				<div class="share-country-row">
+					<label class="share-country-label">Filtrer par pays :</label>
+					<select class="share-country-select" (change)="onShareCountryChange($event)">
+						@for (c of shareCountryOpts(); track c.code) {
+							<option [value]="c.code">{{ c.flag }} {{ c.name }}</option>
+						}
+					</select>
+				</div>
+			}
+
+			@if (shareWarning()) {
+				<div class="share-warning">⚠ {{ shareWarning() }}</div>
+			}
+
+			@if (shareUrl()) {
+				<div class="share-url-row">
+					<input class="share-url-input" [value]="shareUrl()" readonly />
+					<button class="share-copy-btn" (click)="copyShareUrl()">
+						{{ shareCopied() ? '✓ Copié' : 'Copier' }}
+					</button>
+				</div>
+			}
+		</div>
+	</div>
 }
 
 @if (showTripPanel()) {
