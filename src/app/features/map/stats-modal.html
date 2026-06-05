@@ -1,5 +1,11 @@
 <div class="modal-overlay" (click)="close.emit()">
-	<div class="modal" (click)="$event.stopPropagation()">
+	<div
+		class="modal"
+		(click)="$event.stopPropagation()"
+		(touchstart)="onTouchStart($event)"
+		(touchmove)="onTouchMove($event)"
+		(touchend)="onTouchEnd($event)"
+	>
 		<div class="modal-header">
 			<span class="modal-title">Récapitulatif</span>
 			<div class="modal-header-actions">
@@ -34,7 +40,15 @@
 		</div>
 
 		@if (data) {
-			<div class="modal-body" #modalBody>
+			<div
+				class="modal-body"
+				#modalBody
+				[style.transform]="swipeDelta() ? 'translateX(' + swipeDelta() + 'px)' : ''"
+				[class.is-swiping]="swipeDelta() !== 0"
+				[class.is-snapping]="snapping()"
+				[class.slide-from-right]="slideDir() === 'right'"
+				[class.slide-from-left]="slideDir() === 'left'"
+			>
 				<!-- ── DÉCOUVERTE ── -->
 				@if (activeTab() === 'discovery') {
 					@if (showPrompt()) {
@@ -82,7 +96,7 @@
 									</div>
 									@if (isCountryOpen(group.countryCode)) {
 										<div class="country-depts">
-											@for (dept of group.depts; track dept.code) {
+											@for (dept of visibleDepts(group); track dept.code) {
 												<div class="dept-block">
 													<div class="dept-row-top">
 														<span class="row-name">{{ dept.name }}</span>
@@ -93,7 +107,7 @@
 													</div>
 													@if (dept.cities.length > 0) {
 														<div class="city-list">
-															@for (city of dept.cities; track city.name) {
+															@for (city of visibleCities(dept); track city.name) {
 																<div
 																	class="city-row"
 																	(click)="toggleCity(dept.code, city.name)"
@@ -109,15 +123,43 @@
 																	</div>
 																}
 															}
+															@if (dept.cities.length > CITIES_LIMIT) {
+																<button
+																	class="city-expand-btn"
+																	(click)="toggleDeptExpand(dept.code)"
+																>
+																	@if (isDeptExpanded(dept.code)) {
+																		Réduire
+																	} @else {
+																		+ {{ hiddenCitiesCount(dept) }} commune{{
+																			hiddenCitiesCount(dept) > 1 ? 's' : ''
+																		}}
+																	}
+																</button>
+															}
 														</div>
 													}
 												</div>
+											}
+											@if (group.depts.length > DEPTS_LIMIT) {
+												<button
+													class="city-expand-btn"
+													(click)="toggleDeptsExpand(group.countryCode)"
+												>
+													@if (isDeptsExpanded(group.countryCode)) {
+														Réduire
+													} @else {
+														+ {{ hiddenDeptsCount(group) }} département{{
+															hiddenDeptsCount(group) > 1 ? 's' : ''
+														}}
+													}
+												</button>
 											}
 										</div>
 									}
 								</div>
 							} @else {
-								@for (dept of group.depts; track dept.code) {
+								@for (dept of visibleDepts(group); track dept.code) {
 									<div class="dept-block">
 										<div class="dept-row-top">
 											<span class="row-name">{{ dept.name }}</span>
@@ -128,7 +170,7 @@
 										</div>
 										@if (dept.cities.length > 0) {
 											<div class="city-list">
-												@for (city of dept.cities; track city.name) {
+												@for (city of visibleCities(dept); track city.name) {
 													<div class="city-row" (click)="toggleCity(dept.code, city.name)">
 														<span class="city-name">{{ city.name }}</span>
 														<span class="row-count">× {{ city.count }}</span>
@@ -141,9 +183,34 @@
 														</div>
 													}
 												}
+												@if (dept.cities.length > CITIES_LIMIT) {
+													<button
+														class="city-expand-btn"
+														(click)="toggleDeptExpand(dept.code)"
+													>
+														@if (isDeptExpanded(dept.code)) {
+															Réduire
+														} @else {
+															+ {{ hiddenCitiesCount(dept) }} commune{{
+																hiddenCitiesCount(dept) > 1 ? 's' : ''
+															}}
+														}
+													</button>
+												}
 											</div>
 										}
 									</div>
+								}
+								@if (group.depts.length > DEPTS_LIMIT) {
+									<button class="city-expand-btn" (click)="toggleDeptsExpand(group.countryCode)">
+										@if (isDeptsExpanded(group.countryCode)) {
+											Réduire
+										} @else {
+											+ {{ hiddenDeptsCount(group) }} département{{
+												hiddenDeptsCount(group) > 1 ? 's' : ''
+											}}
+										}
+									</button>
 								}
 							}
 						}
@@ -158,7 +225,10 @@
 							@for (day of data.distanceStats.topDays; track day.date) {
 								<div class="stat-row">
 									<div class="stat-row-top">
-										<span class="row-name">{{ day.dateLabel }}</span>
+										<span class="row-name"
+											><span class="day-weekday">{{ topDayName(day.date) }}</span
+											>{{ day.dateLabel }}</span
+										>
 										<div class="stat-row-actions">
 											@if (day.tripCount > 1) {
 												<button class="filter-link" (click)="filterDay(day.date)">

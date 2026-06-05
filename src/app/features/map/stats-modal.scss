@@ -107,6 +107,7 @@
 	padding: 0 1.5rem;
 	flex-shrink: 0;
 	overflow-x: auto;
+	overflow-y: hidden;
 	scrollbar-width: none;
 
 	&::-webkit-scrollbar {
@@ -146,6 +147,64 @@
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
+	will-change: transform;
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) transparent;
+
+	&::-webkit-scrollbar {
+		width: 3px;
+	}
+	&::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	&::-webkit-scrollbar-thumb {
+		background: var(--scrollbar-thumb);
+		border-radius: 3px;
+		&:hover {
+			background: var(--scrollbar-thumb-hover);
+		}
+	}
+
+	&.is-swiping {
+		scrollbar-color: transparent transparent;
+		&::-webkit-scrollbar-thumb {
+			background: transparent;
+		}
+	}
+
+	&.is-snapping {
+		transition: transform 0.25s ease-out;
+	}
+
+	&.slide-from-right {
+		animation: slideFromRight 0.22s ease-out;
+	}
+
+	&.slide-from-left {
+		animation: slideFromLeft 0.22s ease-out;
+	}
+}
+
+@keyframes slideFromRight {
+	from {
+		transform: translateX(35%);
+		opacity: 0.5;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+@keyframes slideFromLeft {
+	from {
+		transform: translateX(-35%);
+		opacity: 0.5;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
 }
 
 // Prompt
@@ -364,7 +423,7 @@
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: 0.55rem;
+	gap: 0.75rem;
 }
 
 // Country block (découverte multi-pays)
@@ -431,7 +490,7 @@
 	border-left: 2px solid var(--border);
 	display: flex;
 	flex-direction: column;
-	gap: 0.55rem;
+	gap: 0.75rem;
 	margin-top: 0.25rem;
 }
 
@@ -439,7 +498,11 @@
 .dept-block {
 	display: flex;
 	flex-direction: column;
-	gap: 0.3rem;
+	gap: 0.55rem;
+	background: var(--input-bg);
+	border: 1px solid var(--border);
+	border-radius: 0.625rem;
+	padding: 0.75rem 0.875rem;
 }
 
 .dept-row-top {
@@ -464,12 +527,9 @@
 
 // City list
 .city-list {
-	padding-left: 0.75rem;
-	border-left: 2px solid var(--border);
 	display: flex;
 	flex-direction: column;
 	gap: 0.25rem;
-	margin-top: 0.1rem;
 }
 
 .city-row {
@@ -517,13 +577,50 @@
 	white-space: nowrap;
 }
 
+.city-expand-btn {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	color: var(--accent);
+	padding: 0.2rem 0;
+	text-align: left;
+	opacity: 0.8;
+
+	@media (hover: hover) {
+		&:hover {
+			opacity: 1;
+		}
+	}
+}
+
 // Shared text styles
+.day-weekday {
+	text-transform: capitalize;
+
+	&::after {
+		content: '\00a0·\00a0';
+		color: var(--text-muted);
+		font-weight: 400;
+	}
+
+	@media (max-width: 550px) {
+		display: none;
+	}
+}
+
 .row-name {
 	font-size: 0.875rem;
 	color: var(--text);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+
+	@media (max-width: 550px) {
+		font-size: 0.75rem;
+	}
 }
 
 .row-pct {

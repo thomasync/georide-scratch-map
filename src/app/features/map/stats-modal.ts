@@ -237,6 +237,13 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	activeTab = signal<Tab>('records');
 	showPrompt = signal(false);
+	swipeDelta = signal(0);
+	snapping = signal(false);
+	slideDir = signal<'left' | 'right' | null>(null);
+	private readonly TAB_ORDER: Tab[] = ['records', 'discovery', 'distances', 'speeds', 'turns', 'pauses', 'fuel'];
+	private touchStartX = 0;
+	private touchStartY = 0;
+	private swipeBlocked = false;
 	tripDuration = signal(4);
 	turnsViewMode = signal<'speed' | 'angle' | 'both'>('both');
 	fuelLoading = signal(false);
@@ -251,6 +258,52 @@ export class StatsModalComponent implements OnChanges, OnInit {
 		});
 	}
 
+	onTouchStart(e: TouchEvent): void {
+		this.touchStartX = e.touches[0].clientX;
+		this.touchStartY = e.touches[0].clientY;
+		this.swipeBlocked = (e.target as Element).closest('.tabs') !== null;
+	}
+
+	onTouchMove(e: TouchEvent): void {
+		if (this.swipeBlocked) return;
+		const dx = e.touches[0].clientX - this.touchStartX;
+		const dy = e.touches[0].clientY - this.touchStartY;
+		if (Math.abs(dx) > Math.abs(dy)) {
+			this.swipeDelta.set(dx);
+		}
+	}
+
+	onTouchEnd(e: TouchEvent): void {
+		if (this.swipeBlocked) return;
+		const dx = e.changedTouches[0].clientX - this.touchStartX;
+		const dy = e.changedTouches[0].clientY - this.touchStartY;
+		const absX = Math.abs(dx);
+
+		if (absX < 50 || absX < Math.abs(dy) * 1.5) {
+			this.snapping.set(true);
+			this.swipeDelta.set(0);
+			setTimeout(() => this.snapping.set(false), 250);
+			return;
+		}
+
+		this.swipeDelta.set(0);
+
+		const idx = this.TAB_ORDER.indexOf(this.activeTab());
+		let newIdx = idx;
+		if (dx < 0 && idx < this.TAB_ORDER.length - 1) newIdx = idx + 1;
+		else if (dx > 0 && idx > 0) newIdx = idx - 1;
+
+		if (newIdx === idx) {
+			this.snapping.set(true);
+			setTimeout(() => this.snapping.set(false), 250);
+			return;
+		}
+
+		this.setTab(this.TAB_ORDER[newIdx]);
+		this.slideDir.set(dx < 0 ? 'right' : 'left');
+		setTimeout(() => this.slideDir.set(null), 300);
+	}
+
 	setTab(tab: Tab): void {
 		const t0 = performance.now();
 		this.activeTab.set(tab);
@@ -260,8 +313,14 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	ngOnChanges(changes: SimpleChanges): void {
-		if (changes['data'] && this.data?.fuelStats.fuelType === this.fuelType()) {
-			this.fuelLoading.set(false);
+		if (changes['data']) {
+			if (this.data?.fuelStats.fuelType === this.fuelType()) {
+				this.fuelLoading.set(false);
+			}
+			const firstCountry = this.deptsByCountry()[0]?.countryCode;
+			if (firstCountry) {
+				this.expandedCountries.set(new Set([firstCountry]));
+			}
 		}
 	}
 
@@ -323,14 +382,53 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	private expandedKey = signal<string | null>(null);
 	private expandedCountries = signal<Set<string>>(new Set());
+	private expandedDept = signal<string | null>(null);
+	private expandedCountryDepts = signal<string | null>(null);
+	readonly CITIES_LIMIT = 5;
+	readonly DEPTS_LIMIT = 5;
 
 	toggleCountry(code: string): void {
 		const current = this.expandedCountries();
 		this.expandedCountries.set(current.has(code) ? new Set() : new Set([code]));
+		this.expandedCountryDepts.set(null);
 	}
 
 	isCountryOpen(code: string): boolean {
 		return this.expandedCountries().has(code);
+	}
+
+	isDeptExpanded(deptCode: string): boolean {
+		return this.expandedDept() === deptCode;
+	}
+
+	toggleDeptExpand(deptCode: string): void {
+		this.expandedDept.set(this.expandedDept() === deptCode ? null : deptCode);
+	}
+
+	visibleCities(dept: StatsModalData['depts'][0]): StatsModalData['depts'][0]['cities'] {
+		if (this.isDeptExpanded(dept.code)) return dept.cities;
+		return dept.cities.slice(0, this.CITIES_LIMIT);
+	}
+
+	hiddenCitiesCount(dept: StatsModalData['depts'][0]): number {
+		return Math.max(0, dept.cities.length - this.CITIES_LIMIT);
+	}
+
+	isDeptsExpanded(countryCode: string): boolean {
+		return this.expandedCountryDepts() === countryCode;
+	}
+
+	toggleDeptsExpand(countryCode: string): void {
+		this.expandedCountryDepts.set(this.expandedCountryDepts() === countryCode ? null : countryCode);
+	}
+
+	visibleDepts(group: { countryCode: string; depts: StatsModalData['depts'] }): StatsModalData['depts'] {
+		if (this.isDeptsExpanded(group.countryCode)) return group.depts;
+		return group.depts.slice(0, this.DEPTS_LIMIT);
+	}
+
+	hiddenDeptsCount(group: { countryCode: string; depts: StatsModalData['depts'] }): number {
+		return Math.max(0, group.depts.length - this.DEPTS_LIMIT);
 	}
 
 	countryPct(depts: StatsModalData['depts']): number {
@@ -449,6 +547,12 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	formatKm(km: number): string {
 		return km.toLocaleString('fr-FR');
+	}
+
+	private static dayFmt = new Intl.DateTimeFormat('fr-FR', { weekday: 'long' });
+
+	topDayName(dateStr: string): string {
+		return StatsModalComponent.dayFmt.format(new Date(dateStr + 'T12:00:00'));
 	}
 
 	maxDayKm(): number {
