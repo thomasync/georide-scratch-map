@@ -326,6 +326,23 @@ export class DemoService {
 			return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
 		};
 
+		// Précomputer les caps puis les deltas lissés sur 7 points pour l'inclinaison synthétique
+		const bearings: number[] = coords.map(([lat, lon], idx) =>
+			idx < coords.length - 1
+				? compassBearing(lat, lon, coords[idx + 1][0], coords[idx + 1][1])
+				: idx > 0
+					? compassBearing(coords[idx - 1][0], coords[idx - 1][1], lat, lon)
+					: 0,
+		);
+		const rawDeltas = bearings.map((b, i) =>
+			i === 0 ? 0 : Math.min(Math.abs(b - bearings[i - 1]), 360 - Math.abs(b - bearings[i - 1])),
+		);
+		// Lissage sur fenêtre de 7 points pour éviter les pics discrets des waypoints OSRM
+		const smoothDeltas = rawDeltas.map((_, i) => {
+			const w = rawDeltas.slice(Math.max(0, i - 3), i + 4);
+			return w.reduce((s, v) => s + v, 0) / w.length;
+		});
+
 		const positions: GeoRidePosition[] = coords.map(([lat, lon], idx) => {
 			const t = idx / Math.max(coords.length - 1, 1);
 			const seg = Math.min(Math.floor(t * NUM_KEYS), NUM_KEYS - 1);
@@ -334,12 +351,9 @@ export class DemoService {
 				? Math.max(1, route.alts![idx])
 				: Math.round(Math.max(1, ss(altKeys[seg], altKeys[seg + 1], st)));
 			const speedKnots = Math.max(0.3, ss(speedKeys[seg], speedKeys[seg + 1], st));
-			const angle =
-				idx < coords.length - 1
-					? compassBearing(lat, lon, coords[idx + 1][0], coords[idx + 1][1])
-					: idx > 0
-						? compassBearing(coords[idx - 1][0], coords[idx - 1][1], lat, lon)
-						: 0;
+			// Inclinaison synthétique : delta de cap lissé × 0.6, max 38°
+			const lean = Math.min(smoothDeltas[idx] * 0.6, 38);
+			const angle = 90 - lean;
 			return {
 				fixtime: new Date(startMs + idx * msPerCoord).toISOString(),
 				latitude: lat,

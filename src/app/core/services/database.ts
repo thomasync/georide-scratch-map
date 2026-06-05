@@ -8,6 +8,8 @@ export type StoredTrip = Trip & {
 	positions?: GeoRidePosition[];
 };
 
+export type TripWithCoords = StoredTrip & { coords: [number, number][] };
+
 interface KvEntry<T> {
 	value: T;
 	expiresAt?: number;
@@ -16,9 +18,10 @@ interface KvEntry<T> {
 @Injectable({ providedIn: 'root' })
 export class DatabaseService {
 	private readonly DB_NAME = 'georide';
-	private readonly DB_VERSION = 3;
+	private readonly DB_VERSION = 4;
 	private readonly KV = 'kv';
 	private readonly TRIPS = 'trips';
+	private readonly FUELS = 'fuels';
 
 	private readonly db$: Observable<IDBDatabase>;
 
@@ -51,6 +54,9 @@ export class DatabaseService {
 				const store = db.createObjectStore(this.TRIPS, { keyPath: 'indexId' });
 				store.createIndex('startTime', 'startTime');
 				store.createIndex('trackerId', 'trackerId');
+				if (!db.objectStoreNames.contains(this.FUELS)) {
+					db.createObjectStore(this.FUELS);
+				}
 			};
 			req.onsuccess = () => {
 				s.next(req.result);
@@ -113,6 +119,42 @@ export class DatabaseService {
 				(db) =>
 					new Observable<void>((s) => {
 						const req = db.transaction(this.KV, 'readwrite').objectStore(this.KV).delete(key);
+						req.onsuccess = () => {
+							s.next();
+							s.complete();
+						};
+						req.onerror = () => s.error(req.error);
+					}),
+			),
+			catchError(() => of(void 0)),
+		);
+	}
+
+	// ── Fuels ────────────────────────────────────────────────────────────────
+
+	fuelGet(key: string): Observable<number | null> {
+		return this.db$.pipe(
+			switchMap(
+				(db) =>
+					new Observable<number | null>((s) => {
+						const req = db.transaction(this.FUELS, 'readonly').objectStore(this.FUELS).get(key);
+						req.onsuccess = () => {
+							s.next(req.result ?? null);
+							s.complete();
+						};
+						req.onerror = () => s.error(req.error);
+					}),
+			),
+			catchError(() => of(null)),
+		);
+	}
+
+	fuelSet(key: string, value: number): Observable<void> {
+		return this.db$.pipe(
+			switchMap(
+				(db) =>
+					new Observable<void>((s) => {
+						const req = db.transaction(this.FUELS, 'readwrite').objectStore(this.FUELS).put(value, key);
 						req.onsuccess = () => {
 							s.next();
 							s.complete();

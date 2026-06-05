@@ -3,71 +3,851 @@
 		<div class="modal-header">
 			<span class="modal-title">Récapitulatif</span>
 			<div class="modal-header-actions">
-				<button class="modal-action-btn" (click)="togglePrompt()" title="Générer un prompt">?</button>
+				@if (isFiltered) {
+					<button
+						class="modal-filter-reset"
+						(click)="applyFilter.emit({ type: 'reset' })"
+						title="Afficher tous les trajets"
+					>
+						Tout
+					</button>
+				}
+				@if (activeTab() === 'discovery') {
+					<button class="modal-action-btn" (click)="togglePrompt()" title="Générer un prompt">?</button>
+				}
 				<button class="modal-close" (click)="close.emit()">✕</button>
 			</div>
 		</div>
 
+		<div class="tabs">
+			<button class="tab" [class.active]="activeTab() === 'records'" (click)="setTab('records')">Bilan</button>
+			<button class="tab" [class.active]="activeTab() === 'discovery'" (click)="setTab('discovery')">
+				Découverte
+			</button>
+			<button class="tab" [class.active]="activeTab() === 'distances'" (click)="setTab('distances')">
+				Distances
+			</button>
+			<button class="tab" [class.active]="activeTab() === 'speeds'" (click)="setTab('speeds')">Vitesses</button>
+			<button class="tab" [class.active]="activeTab() === 'turns'" (click)="setTab('turns')">Virages</button>
+			<button class="tab" [class.active]="activeTab() === 'pauses'" (click)="setTab('pauses')">Pauses</button>
+			<button class="tab" [class.active]="activeTab() === 'fuel'" (click)="setTab('fuel')">Essence</button>
+		</div>
+
 		@if (data) {
 			<div class="modal-body" #modalBody>
-				@if (showPrompt()) {
-					<div class="prompt-duration">
-						<span class="prompt-duration-label"
-							>Durée : {{ tripDuration() }}h — ≈ {{ tripKm() }} km — {{ tripStops() }} étape{{
-								tripStops() > 1 ? 's' : ''
-							}}{{
-								tripMealBreaks() > 0
-									? ' + ' + tripMealBreaks() + ' pause' + (tripMealBreaks() > 1 ? 's' : '') + ' repas'
-									: ''
-							}}</span
-						>
-						<input
-							class="prompt-slider"
-							type="range"
-							min="1"
-							max="10"
-							step="1"
-							[value]="tripDuration()"
-							(input)="setDuration($event)"
-						/>
-					</div>
-					<textarea class="prompt-textarea" #promptTextarea [value]="buildPrompt()"></textarea>
-				}
-				<div class="list">
-					@for (group of deptsByCountry(); track group.countryCode) {
-						@if (deptsByCountry().length > 1) {
-							<div class="country-header">{{ group.countryName }}</div>
-						}
-						@for (dept of group.depts; track dept.code) {
-							<div class="dept-block">
-								<div class="dept-row-top">
-									<span class="row-name">{{ dept.name }}</span>
-									<span class="row-pct">{{ dept.pct }}%</span>
-								</div>
-								<div class="dept-bar">
-									<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
-								</div>
-								@if (dept.cities.length > 0) {
-									<div class="city-list">
-										@for (city of dept.cities; track city.name) {
-											<div class="city-row" (click)="toggleCity(dept.code, city.name)">
-												<span class="city-name">{{ city.name }}</span>
-												<span class="row-count">× {{ city.count }}</span>
-											</div>
-											@if (isVisible(dept.code, city.name)) {
-												<div class="city-dates">
-													@for (date of city.dates; track date) {
-														<span class="city-date">{{ date }}</span>
+				<!-- ── DÉCOUVERTE ── -->
+				@if (activeTab() === 'discovery') {
+					@if (showPrompt()) {
+						<div class="prompt-duration">
+							<span class="prompt-duration-label"
+								>Durée : {{ tripDuration() }}h — ≈ {{ tripKm() }} km — {{ tripStops() }} étape{{
+									tripStops() > 1 ? 's' : ''
+								}}{{
+									tripMealBreaks() > 0
+										? ' + ' +
+											tripMealBreaks() +
+											' pause' +
+											(tripMealBreaks() > 1 ? 's' : '') +
+											' repas'
+										: ''
+								}}</span
+							>
+							<input
+								class="prompt-slider"
+								type="range"
+								min="1"
+								max="10"
+								step="1"
+								[value]="tripDuration()"
+								(input)="setDuration($event)"
+							/>
+						</div>
+						<textarea class="prompt-textarea" #promptTextarea [value]="buildPrompt()"></textarea>
+					}
+					<div class="list">
+						@for (group of deptsByCountry(); track group.countryCode) {
+							@if (deptsByCountry().length > 1) {
+								<div class="country-block">
+									<div class="country-row" (click)="toggleCountry(group.countryCode)">
+										<span class="country-name"
+											>{{ group.countryName }} {{ countryFlag(group.countryCode) }}</span
+										>
+										<span class="country-pct">{{ countryPct(group.depts) }}%</span>
+										<span class="country-chevron" [class.open]="isCountryOpen(group.countryCode)"
+											>›</span
+										>
+									</div>
+									<div class="country-bar">
+										<div class="country-bar-fill" [style.width.%]="countryPct(group.depts)"></div>
+									</div>
+									@if (isCountryOpen(group.countryCode)) {
+										<div class="country-depts">
+											@for (dept of group.depts; track dept.code) {
+												<div class="dept-block">
+													<div class="dept-row-top">
+														<span class="row-name">{{ dept.name }}</span>
+														<span class="row-pct">{{ dept.pct }}%</span>
+													</div>
+													<div class="dept-bar">
+														<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
+													</div>
+													@if (dept.cities.length > 0) {
+														<div class="city-list">
+															@for (city of dept.cities; track city.name) {
+																<div
+																	class="city-row"
+																	(click)="toggleCity(dept.code, city.name)"
+																>
+																	<span class="city-name">{{ city.name }}</span>
+																	<span class="row-count">× {{ city.count }}</span>
+																</div>
+																@if (isVisible(dept.code, city.name)) {
+																	<div class="city-dates">
+																		@for (date of city.dates; track date) {
+																			<span class="city-date">{{ date }}</span>
+																		}
+																	</div>
+																}
+															}
+														</div>
 													}
 												</div>
 											}
+										</div>
+									}
+								</div>
+							} @else {
+								@for (dept of group.depts; track dept.code) {
+									<div class="dept-block">
+										<div class="dept-row-top">
+											<span class="row-name">{{ dept.name }}</span>
+											<span class="row-pct">{{ dept.pct }}%</span>
+										</div>
+										<div class="dept-bar">
+											<div class="dept-bar-fill" [style.width.%]="dept.pct"></div>
+										</div>
+										@if (dept.cities.length > 0) {
+											<div class="city-list">
+												@for (city of dept.cities; track city.name) {
+													<div class="city-row" (click)="toggleCity(dept.code, city.name)">
+														<span class="city-name">{{ city.name }}</span>
+														<span class="row-count">× {{ city.count }}</span>
+													</div>
+													@if (isVisible(dept.code, city.name)) {
+														<div class="city-dates">
+															@for (date of city.dates; track date) {
+																<span class="city-date">{{ date }}</span>
+															}
+														</div>
+													}
+												}
+											</div>
 										}
+									</div>
+								}
+							}
+						}
+					</div>
+				}
+
+				<!-- ── DISTANCES ── -->
+				@if (activeTab() === 'distances') {
+					@if (data.distanceStats.topDays.length > 0) {
+						<div class="section-title">Top jours</div>
+						<div class="list">
+							@for (day of data.distanceStats.topDays; track day.date) {
+								<div class="stat-row">
+									<div class="stat-row-top">
+										<span class="row-name">{{ day.dateLabel }}</span>
+										<div class="stat-row-actions">
+											@if (day.tripCount > 1) {
+												<button class="filter-link" (click)="filterDay(day.date)">
+													{{ day.tripCount }} trajets
+												</button>
+											} @else {
+												<button class="filter-link" (click)="filterDay(day.date)">voir</button>
+											}
+											<span class="row-pct">{{ formatKm(day.km) }} km</span>
+										</div>
+									</div>
+									<div class="bar-track">
+										<div class="bar-fill" [style.width.%]="barPct(day.km, maxDayKm())"></div>
+									</div>
+								</div>
+							}
+						</div>
+					}
+
+					@if (data.distanceStats.topTrips.length > 0) {
+						<div class="section-title">Longs trajets</div>
+						<div class="speed-list">
+							@for (trip of data.distanceStats.topTrips; track trip.indexId) {
+								<button class="speed-item" (click)="openTrip(trip.indexId)">
+									<div class="speed-item-left">
+										<span class="speed-item-max"
+											>{{ formatKm(trip.km) }}<span class="speed-item-unit"> km</span></span
+										>
+									</div>
+									<div class="speed-item-right">
+										<span class="speed-item-route">{{
+											routeWithFlags(
+												trip.from,
+												trip.to,
+												trip.fromCountryCode,
+												trip.toCountryCode,
+												hasMultipleCountriesInRoutes(data.distanceStats.topTrips)
+											)
+										}}</span>
+										<span class="speed-item-meta">
+											<button
+												class="muted-filter-link inline"
+												(click)="$event.stopPropagation(); filterDay(trip.date)"
+											>
+												{{ trip.dateLabel }}
+											</button>
+										</span>
+									</div>
+								</button>
+							}
+						</div>
+					}
+
+					@if (data.distanceStats.bySeason.length > 0) {
+						<div class="section-title">Par saison</div>
+						<div class="list">
+							@for (season of data.distanceStats.bySeason; track season.label) {
+								<div class="stat-row">
+									<div class="stat-row-top">
+										<button class="row-name text-btn" (click)="filterSeason(season.label)">
+											{{ season.label }}
+										</button>
+										<span class="row-pct">{{ formatKm(season.km) }} km</span>
+									</div>
+									<div class="bar-track">
+										<div class="bar-fill" [style.width.%]="barPct(season.km, maxSeasonKm())"></div>
+									</div>
+								</div>
+							}
+						</div>
+					}
+
+					@if (data.distanceStats.byMonth.length > 0) {
+						<div class="section-title">Par mois</div>
+						<div class="list">
+							@for (month of data.distanceStats.byMonth; track month.key) {
+								<div class="stat-row">
+									<div class="stat-row-top">
+										<button class="row-name text-btn" (click)="filterMonth(month.key)">
+											{{ month.label }}
+										</button>
+										<span class="row-pct">{{ formatKm(month.km) }} km</span>
+									</div>
+									<div class="bar-track">
+										<div class="bar-fill" [style.width.%]="barPct(month.km, maxMonthKm())"></div>
+									</div>
+								</div>
+							}
+						</div>
+					}
+				}
+
+				<!-- ── VITESSES ── -->
+				@if (activeTab() === 'speeds') {
+					<button class="speed-hero clickable-card" (click)="openTrip(data.speedStats.maxSpeedTripIndexId)">
+						<div class="speed-hero-value">
+							<span class="speed-value">{{ data.speedStats.globalMaxKmh }}</span>
+							<span class="speed-unit"> km/h</span>
+						</div>
+						<div class="speed-hero-label">Vitesse max</div>
+					</button>
+
+					<div class="stat-card">
+						<div class="stat-card-row">
+							<span class="row-muted">Vitesse moyenne pondérée</span>
+							<span class="row-name stat-value">{{ data.speedStats.globalAvgKmh }} km/h</span>
+						</div>
+					</div>
+
+					@if (data.speedStats.topByMax.length > 0) {
+						<div class="section-title">Trajets les plus rapides</div>
+						<div class="speed-list">
+							@for (entry of data.speedStats.topByMax; track entry.indexId) {
+								<button class="speed-item" (click)="openTrip(entry.indexId)">
+									<div class="speed-item-left">
+										<span class="speed-item-max"
+											>{{ entry.maxKmh }}<span class="speed-item-unit"> km/h</span></span
+										>
+										<span class="speed-item-avg">moy. {{ entry.avgKmh }} km/h</span>
+									</div>
+									<div class="speed-item-right">
+										<span class="speed-item-route">{{
+											routeWithFlags(
+												entry.from,
+												entry.to,
+												entry.fromCountryCode,
+												entry.toCountryCode,
+												hasMultipleCountriesInRoutes(data.speedStats.topByMax)
+											)
+										}}</span>
+										<span class="speed-item-meta">
+											<button
+												class="muted-filter-link inline"
+												(click)="$event.stopPropagation(); filterDay(entry.date)"
+											>
+												{{ entry.dateLabel }}
+											</button>
+											· {{ entry.km }} km
+										</span>
+									</div>
+								</button>
+							}
+						</div>
+					}
+				}
+
+				<!-- ── VIRAGES ── -->
+				@if (activeTab() === 'turns') {
+					@if (data.turnStats.maxLeanAngle !== null) {
+						<button class="speed-hero clickable-card" (click)="openTrip(data.turnStats.maxLeanTripIndexId)">
+							<div class="speed-hero-value">
+								<span class="speed-value">{{ data.turnStats.maxLeanAngle }}</span>
+								<span class="speed-unit">°</span>
+							</div>
+							<div class="speed-hero-label">Angle max</div>
+						</button>
+						@if (data.turnStats.sportPct !== null) {
+							<div class="stat-card">
+								<div class="stat-card-row">
+									<span class="row-muted">Sorties avec lean > 30°</span>
+									<span class="row-name stat-value">{{ data.turnStats.sportPct }}%</span>
+								</div>
+							</div>
+						}
+					}
+
+					@if (data.turnStats.tripsWithPositions > 0) {
+						<div class="stat-card">
+							<div class="stat-card-row">
+								<span class="row-muted">Vitesse moyenne en virage</span>
+								<span class="row-name stat-value accent"
+									>{{ data.turnStats.avgSpeedKmh ?? '—' }} km/h</span
+								>
+							</div>
+							<div class="stat-card-row">
+								<span class="row-muted">Vitesse max en virage</span>
+								<span class="row-name stat-value">{{ data.turnStats.maxSpeedKmh ?? '—' }} km/h</span>
+							</div>
+							@if (data.turnStats.avgPctInTurns !== null) {
+								<div class="stat-card-row">
+									<span class="row-muted">Temps en virage (moy.)</span>
+									<span class="row-name stat-value">{{ data.turnStats.avgPctInTurns }}%</span>
+								</div>
+							}
+							@if (data.turnStats.avgLeanAngle !== null) {
+								<div class="stat-card-row">
+									<span class="row-muted">Inclinaison moyenne en virage</span>
+									<span class="row-name stat-value">{{ data.turnStats.avgLeanAngle }}°</span>
+								</div>
+							}
+						</div>
+					}
+
+					@if (data.turnStats.leanDistribution.length > 0) {
+						<div class="section-title">Inclinaison max par trajet</div>
+						<div class="lean-distribution">
+							@for (bucket of data.turnStats.leanDistribution; track bucket.label) {
+								<div class="lean-bucket">
+									<div class="lean-bucket-bar-wrap">
+										<div class="lean-bucket-bar" [style.height.%]="bucket.pct"></div>
+									</div>
+									<span class="lean-bucket-pct">{{ bucket.pct }}%</span>
+									<span class="lean-bucket-label">{{ bucket.label }}</span>
+								</div>
+							}
+						</div>
+					}
+
+					@if (data.turnStats.topDepts.length > 0) {
+						<div class="section-title">
+							<span>Par département</span>
+							<button class="turns-toggle" (click)="cycleTurnsMode()">{{ turnsToggleLabel() }}</button>
+						</div>
+						<div class="speed-list">
+							@for (dept of sortedDepts(); track dept.deptName) {
+								<div
+									class="turn-item"
+									role="button"
+									tabindex="0"
+									(click)="
+										openTrip(
+											turnsViewMode() === 'both'
+												? dept.maxLeanTripIndexId || dept.maxKmhTripIndexId
+												: turnsViewMode() === 'speed'
+													? dept.maxKmhTripIndexId
+													: dept.maxLeanTripIndexId
+										)
+									"
+								>
+									<div class="speed-item-left">
+										<span class="turns-max-btn">
+											@if (turnsViewMode() === 'both') {
+												{{ dept.maxKmh }}<span class="speed-item-unit"> km/h</span><br />{{
+													dept.maxLeanDeg
+												}}°
+											} @else {
+												{{ turnsViewMode() === 'speed' ? dept.maxKmh : dept.maxLeanDeg
+												}}<span class="speed-item-unit">
+													{{ turnsViewMode() === 'speed' ? 'km/h' : '°' }}</span
+												>
+											}
+										</span>
+									</div>
+									<div class="speed-item-right">
+										<span class="speed-item-route"
+											>{{ dept.deptName
+											}}{{
+												hasMultipleCountriesInTurns() ? ' ' + countryFlag(dept.countryCode) : ''
+											}}</span
+										>
+										@if (turnsViewMode() !== 'both') {
+											<div class="bar-track" style="margin: 0.2rem 0">
+												<div
+													class="bar-fill"
+													[style.width.%]="
+														barPct(
+															turnsViewMode() === 'speed' ? dept.maxKmh : dept.maxLeanDeg,
+															maxTurnDeptVal()
+														)
+													"
+												></div>
+											</div>
+										}
+										<span class="speed-item-meta"
+											>moy.
+											{{
+												turnsViewMode() === 'both'
+													? dept.avgKmh + ' km/h · ' + dept.avgLeanDeg + '°'
+													: turnsViewMode() === 'speed'
+														? dept.avgKmh + ' km/h'
+														: dept.avgLeanDeg + '°'
+											}}
+											· {{ dept.tripCount }} trajet{{ dept.tripCount > 1 ? 's' : '' }}</span
+										>
+									</div>
+								</div>
+							}
+						</div>
+					}
+
+					@if (data.turnStats.topCities.length > 0) {
+						<div class="section-title">
+							<span>Villes proches des virages</span>
+							<button class="turns-toggle" (click)="cycleTurnsMode()">{{ turnsToggleLabel() }}</button>
+						</div>
+						<div class="speed-list">
+							@for (city of sortedCities(); track city.cityName) {
+								<div
+									class="turn-item"
+									role="button"
+									tabindex="0"
+									(click)="
+										openTrip(
+											turnsViewMode() === 'both'
+												? city.maxLeanTripIndexId || city.maxKmhTripIndexId
+												: turnsViewMode() === 'speed'
+													? city.maxKmhTripIndexId
+													: city.maxLeanTripIndexId
+										)
+									"
+								>
+									<div class="speed-item-left">
+										<span class="turns-max-btn">
+											@if (turnsViewMode() === 'both') {
+												{{ city.maxKmh }}<span class="speed-item-unit"> km/h</span><br />{{
+													city.maxLeanDeg
+												}}°
+											} @else {
+												{{ turnsViewMode() === 'speed' ? city.maxKmh : city.maxLeanDeg
+												}}<span class="speed-item-unit">
+													{{ turnsViewMode() === 'speed' ? 'km/h' : '°' }}</span
+												>
+											}
+										</span>
+									</div>
+									<div class="speed-item-right">
+										<span class="speed-item-route"
+											>{{ city.cityName
+											}}{{
+												hasMultipleCountriesInTurns() ? ' ' + countryFlag(city.countryCode) : ''
+											}}</span
+										>
+										@if (turnsViewMode() !== 'both') {
+											<div class="bar-track" style="margin: 0.2rem 0">
+												<div
+													class="bar-fill"
+													[style.width.%]="
+														barPct(
+															turnsViewMode() === 'speed' ? city.maxKmh : city.maxLeanDeg,
+															maxTurnCityVal()
+														)
+													"
+												></div>
+											</div>
+										}
+										<span class="speed-item-meta"
+											>moy.
+											{{
+												turnsViewMode() === 'both'
+													? city.avgKmh + ' km/h · ' + city.avgLeanDeg + '°'
+													: turnsViewMode() === 'speed'
+														? city.avgKmh + ' km/h'
+														: city.avgLeanDeg + '°'
+											}}
+											· {{ city.deptName }}</span
+										>
+									</div>
+								</div>
+							}
+						</div>
+					}
+				}
+
+				<!-- ── PAUSES ── -->
+				@if (activeTab() === 'pauses') {
+					<div class="stat-card">
+						@if (data.pauseStats.avgPausesPerTrip !== null) {
+							<div class="stat-card-row">
+								<span class="row-muted">Pauses par trajet (moy.)</span>
+								<span class="row-name stat-value accent">{{ data.pauseStats.avgPausesPerTrip }}</span>
+							</div>
+						}
+						@if (data.pauseStats.avgPauseDurationMin !== null) {
+							<div class="stat-card-row">
+								<span class="row-muted">Durée moyenne d'une pause</span>
+								<span class="row-name stat-value">{{
+									formatDuration(data.pauseStats.avgPauseDurationMin)
+								}}</span>
+							</div>
+						}
+						@if (data.pauseStats.maxPauseDurationMin !== null) {
+							<div class="stat-card-row">
+								<span class="row-muted">Pause la plus longue</span>
+								<button class="turns-max-btn" (click)="openTrip(data.pauseStats.maxPauseTripIndexId)">
+									{{ formatDuration(data.pauseStats.maxPauseDurationMin)
+									}}{{
+										data.pauseStats.maxPauseDateLabel
+											? ' — ' + data.pauseStats.maxPauseDateLabel
+											: ''
+									}}
+								</button>
+							</div>
+						}
+					</div>
+
+					<div class="section-title">Endurance</div>
+					<div class="stat-card">
+						@if (data.pauseStats.avgKmBeforeFirstPause !== null) {
+							<div class="stat-card-row">
+								<span class="row-muted">Km avant 1re pause (moy.)</span>
+								<span class="row-name stat-value accent"
+									>{{ data.pauseStats.avgKmBeforeFirstPause }} km</span
+								>
+							</div>
+						}
+						@if (data.pauseStats.longestSessionKm !== null) {
+							<div class="stat-card-row">
+								<span class="row-muted">Plus long trajet sans pause</span>
+								<button
+									class="turns-max-btn"
+									(click)="openTrip(data.pauseStats.longestSessionTripIndexId)"
+								>
+									{{ data.pauseStats.longestSessionKm }} km
+								</button>
+							</div>
+						}
+					</div>
+
+					@if (data.pauseStats.byKmRange.length > 0) {
+						<div class="section-title">Par plage de distance</div>
+						<div class="list">
+							@for (range of data.pauseStats.byKmRange; track range.label) {
+								<div class="stat-row">
+									<div class="stat-row-top">
+										<span class="row-name">{{ range.label }}</span>
+										<span class="row-pct"
+											>{{ range.avgPauses }} pause{{ range.avgPauses !== 1 ? 's' : '' }}</span
+										>
+									</div>
+									<span class="row-muted"
+										>min {{ range.minPauses }} · max {{ range.maxPauses }} ·
+										{{ range.tripCount }} trajet{{ range.tripCount > 1 ? 's' : '' }}</span
+									>
+									@if (range.avgDurationMin > 0) {
+										<span class="row-muted"
+											>durée {{ formatDuration(range.minDurationMin) }} · moy.
+											{{ formatDuration(range.avgDurationMin) }} ·
+											{{ formatDuration(range.maxDurationMin) }}</span
+										>
+									}
+								</div>
+							}
+						</div>
+					}
+				}
+
+				<!-- ── ESSENCE ── -->
+				@if (activeTab() === 'fuel') {
+					<!-- Sélecteur carburant + réservoir -->
+					<div class="fuel-controls">
+						<div class="fuel-control-group">
+							@for (ft of fuelTypes; track ft) {
+								<button class="fuel-chip" [class.active]="fuelType() === ft" (click)="setFuelType(ft)">
+									{{ ft }}
+								</button>
+							}
+						</div>
+						<div class="fuel-control-group">
+							@for (sz of [12, 15, 18, 20]; track sz) {
+								<button class="fuel-chip" [class.active]="tankSize() === sz" (click)="setTankSize(sz)">
+									{{ sz }}L
+								</button>
+							}
+						</div>
+					</div>
+
+					@if (fuelData(); as fd) {
+						@if (fd.byMonth.length === 0) {
+							<p class="info-note">Aucun trajet disponible.</p>
+						} @else {
+							<div class="speed-hero speed-hero--static">
+								<div class="speed-hero-value">
+									<span class="speed-value">{{
+										fuelLoading() || fd.totalCost === null ? '—' : formatEur(fd.totalCost)
+									}}</span>
+								</div>
+								<div class="speed-hero-label">Dépensé au total</div>
+							</div>
+
+							<div class="stat-card">
+								<div class="stat-card-row">
+									<span class="row-muted">Litres consommés</span>
+									<span class="row-name stat-value">{{ fd.totalLiters }} L</span>
+								</div>
+								<div class="stat-card-row">
+									<span class="row-muted">Consommation moyenne</span>
+									<span class="row-name stat-value accent">{{ fd.avgConsumptionL100 }} L/100km</span>
+								</div>
+								<div class="stat-card-row">
+									<span class="row-muted">Pleins estimés au total ({{ tankSize() }}L)</span>
+									<span class="row-name stat-value">{{ fd.totalFillUps }}</span>
+								</div>
+								<div class="stat-card-row">
+									<span class="row-muted">Pleins par mois (moy.)</span>
+									<span class="row-name stat-value">~{{ avgFillUpsPerMonth(fd) }}</span>
+								</div>
+								<div class="stat-card-row">
+									<span class="row-muted">Coût au km</span>
+									<span class="row-name stat-value">{{
+										fuelLoading() || fd.costPerKm === null ? '—' : fd.costPerKm + ' €/km'
+									}}</span>
+								</div>
+								<div class="stat-card-row">
+									<span class="row-muted">CO₂ émis (estimé)</span>
+									<span class="row-name stat-value">{{ formatKm(fd.co2KgTotal) }} kg</span>
+								</div>
+							</div>
+
+							<div class="section-title">Par mois</div>
+							<div class="list">
+								@for (month of fd.byMonth; track month.key) {
+									<div class="stat-row">
+										<div class="stat-row-top">
+											<span class="row-name">{{ month.label }}</span>
+											<div class="stat-row-actions">
+												<span
+													[class.row-pct]="!fuelLoading() && month.cost !== null"
+													[class.row-muted]="fuelLoading() || month.cost === null"
+												>
+													{{
+														fuelLoading()
+															? '—'
+															: month.cost !== null
+																? formatEur(month.cost)
+																: 'N/D'
+													}}
+												</span>
+											</div>
+										</div>
+										<div class="bar-track">
+											<div
+												class="bar-fill"
+												[style.width.%]="barPct(month.cost ?? 0, maxFuelMonthCost())"
+											></div>
+										</div>
+										<span class="row-muted">
+											{{ month.litersConsumed }} L
+											@if (month.pricePerL !== null) {
+												· {{ month.pricePerL }} €/L
+											}
+											· {{ month.fillUps }} plein{{ month.fillUps > 1 ? 's' : '' }}
+										</span>
+									</div>
+								}
+							</div>
+							<p class="info-note">
+								Consommation estimée d'après la vitesse moyenne et le style de conduite. Résultats
+								indicatifs.
+							</p>
+						}
+					}
+				}
+
+				<!-- ── PALMARÈS ── -->
+				@if (activeTab() === 'records') {
+					<div class="palmares-hero">
+						<div class="palmares-hero-stat">
+							<span class="palmares-big">{{ formatKm(data.records.totalKm) }}</span>
+							<span class="palmares-unit">km parcourus</span>
+						</div>
+						<div class="palmares-hero-divider"></div>
+						<div class="palmares-hero-stat">
+							<span class="palmares-big">{{ formatHours(data.records.totalRidingHours) }}</span>
+							<span class="palmares-unit">en selle</span>
+						</div>
+					</div>
+
+					<div class="record-grid">
+						@if (data.records.longestTrip) {
+							<button class="record-card clickable" (click)="openTrip(data.records.longestTrip.indexId)">
+								<span class="record-label">Trajet le plus long</span>
+								<span class="record-value">{{ formatKm(data.records.longestTrip.km) }} km</span>
+								@if (data.records.longestTrip.from || data.records.longestTrip.to) {
+									<span class="record-detail"
+										>{{ data.records.longestTrip.from
+										}}{{ data.records.longestTrip.from && data.records.longestTrip.to ? ' → ' : ''
+										}}{{ data.records.longestTrip.to }}</span
+									>
+								}
+								<span class="record-detail">{{ data.records.longestTrip.dateLabel }}</span>
+							</button>
+						}
+						@if (data.records.longestDay) {
+							<div class="record-card">
+								<span class="record-label">Journée record</span>
+								<span class="record-value">{{ formatKm(data.records.longestDay.km) }} km</span>
+								<span class="record-detail">{{ data.records.longestDay.dateLabel }}</span>
+								@if (data.records.longestDay.tripCount > 1) {
+									<span class="record-detail">{{ data.records.longestDay.tripCount }} trajets</span>
+								}
+							</div>
+						}
+						@if (data.records.avgKmPerTrip > 0) {
+							<div class="record-card">
+								<span class="record-label">Trajet moyen</span>
+								<span class="record-value">{{ data.records.avgKmPerTrip }} km</span>
+								<span class="record-detail">{{ formatDuration(data.records.avgTripDurationMin) }}</span>
+							</div>
+						}
+						@if (data.records.bestMonth) {
+							<div class="record-card">
+								<span class="record-label">Meilleur mois</span>
+								<span class="record-value">{{ formatKm(data.records.bestMonth.km) }} km</span>
+								<span class="record-detail">{{ data.records.bestMonth.label }}</span>
+							</div>
+						}
+						@if (data.records.topDaysOfWeek.length > 0) {
+							<div class="record-card">
+								<span class="record-label">Jours favoris</span>
+								@for (day of data.records.topDaysOfWeek; track day; let i = $index) {
+									<span
+										class="record-day"
+										[style.font-size]="dayStyles()[i].fontSize"
+										[style.letter-spacing]="dayStyles()[i].letterSpacing"
+										>{{ day }}</span
+									>
+								}
+							</div>
+						}
+						@if (data.records.departureHour !== null || data.records.arrivalHour !== null) {
+							<div class="record-card">
+								<span class="record-label">Horaires habituels</span>
+								@if (data.records.departureHour !== null) {
+									<div class="record-hour-row">
+										<span class="record-hour-label">Départ</span>
+										<span class="record-hour-value">{{ data.records.departureHour }}h</span>
+									</div>
+								}
+								@if (data.records.pauseHour !== null) {
+									<div class="record-hour-row">
+										<span class="record-hour-label">Pause</span>
+										<span class="record-hour-value record-hour-value--muted"
+											>~{{ data.records.pauseHour }}h</span
+										>
+									</div>
+								}
+								@if (data.records.arrivalHour !== null) {
+									<div class="record-hour-row">
+										<span class="record-hour-label">Arrivée</span>
+										<span class="record-hour-value">{{ data.records.arrivalHour }}h</span>
 									</div>
 								}
 							</div>
 						}
-					}
-				</div>
+						@if (data.records.longestStreak > 1) {
+							<div class="record-card">
+								<span class="record-label">Streak max</span>
+								<span class="record-value"
+									>{{ data.records.longestStreak }} <span class="record-value-sub">jours</span></span
+								>
+								@if (data.records.longestStreakFrom && data.records.longestStreakTo) {
+									<span class="record-detail"
+										>{{ data.records.longestStreakFrom }} → {{ data.records.longestStreakTo }}</span
+									>
+								}
+							</div>
+						}
+						@if (data.records.longestBreak) {
+							<div class="record-card">
+								<span class="record-label">Plus longue pause</span>
+								<span class="record-value"
+									>{{ data.records.longestBreak.days }}
+									<span class="record-value-sub">jours</span></span
+								>
+								<span class="record-detail"
+									>{{ data.records.longestBreak.from }} → {{ data.records.longestBreak.to }}</span
+								>
+							</div>
+						}
+						@if (data.records.firstTripDate) {
+							<div class="record-card">
+								<span class="record-label">Premier trajet</span>
+								<span class="record-value record-value--sm">{{ data.records.firstTripDate }}</span>
+							</div>
+						}
+						@if (data.fuelStats.totalCost !== null) {
+							<div class="record-card">
+								<span class="record-label">Carburant ({{ data.fuelStats.fuelType }})</span>
+								<span class="record-value">{{ formatEur(data.fuelStats.totalCost) }}</span>
+								<span class="record-detail"
+									>~{{ avgFillUpsPerMonth(data.fuelStats) }} plein{{
+										avgFillUpsPerMonth(data.fuelStats) > 1 ? 's' : ''
+									}}/mois</span
+								>
+							</div>
+						}
+					</div>
+
+					<div class="global-stats">
+						<div class="global-stat">
+							<span class="global-stat-value">{{ data.records.totalTrips }}</span>
+							<span class="global-stat-label">trajets</span>
+						</div>
+						<div class="global-stat">
+							<span class="global-stat-value">{{ data.records.ridingDays }}</span>
+							<span class="global-stat-label">jours</span>
+						</div>
+					</div>
+				}
 			</div>
 		}
 	</div>

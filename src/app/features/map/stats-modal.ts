@@ -1,4 +1,197 @@
-import { Component, Input, Output, EventEmitter, signal, ViewChild, ElementRef } from '@angular/core';
+import {
+	Component,
+	Input,
+	Output,
+	EventEmitter,
+	signal,
+	ViewChild,
+	ElementRef,
+	OnChanges,
+	SimpleChanges,
+	ChangeDetectionStrategy,
+	inject,
+	OnInit,
+} from '@angular/core';
+import { countryFlag as getCountryFlag } from '../../core/data/countries';
+import { FuelService } from '../../core/services/fuel.service';
+import { LoggerService } from '../../core/services/logger';
+import { estimateFillUps } from '../../core/utils/fuel-consumption';
+
+export type FilterAction =
+	| { type: 'day'; date: string }
+	| { type: 'month'; month: string }
+	| { type: 'season'; name: string }
+	| { type: 'reset' };
+
+export interface DayDistance {
+	date: string;
+	dateLabel: string;
+	km: number;
+	tripCount: number;
+	indexIds: string[];
+}
+
+export interface MonthStats {
+	key: string;
+	label: string;
+	km: number;
+	tripCount: number;
+}
+
+export interface SeasonStats {
+	label: string;
+	km: number;
+	tripCount: number;
+}
+
+export interface TopTrip {
+	indexId: string;
+	dateLabel: string;
+	date: string;
+	km: number;
+	from: string | null;
+	to: string | null;
+	fromCountryCode: string;
+	toCountryCode: string;
+}
+
+export interface DistanceStats {
+	topDays: DayDistance[];
+	byMonth: MonthStats[];
+	bySeason: SeasonStats[];
+	topTrips: TopTrip[];
+}
+
+export interface SpeedEntry {
+	indexId: string;
+	date: string;
+	dateLabel: string;
+	maxKmh: number;
+	avgKmh: number;
+	km: number;
+	from: string | null;
+	to: string | null;
+	fromCountryCode: string;
+	toCountryCode: string;
+}
+
+export interface SpeedStats {
+	globalMaxKmh: number;
+	globalAvgKmh: number;
+	maxSpeedTripIndexId: string | null;
+	topByMax: SpeedEntry[];
+}
+
+export interface LeanBucket {
+	label: string;
+	pct: number;
+	count: number;
+}
+
+export interface TurnDeptStat {
+	deptName: string;
+	countryCode: string;
+	avgKmh: number;
+	maxKmh: number;
+	maxKmhTripIndexId: string | null;
+	avgLeanDeg: number;
+	maxLeanDeg: number;
+	maxLeanTripIndexId: string | null;
+	tripCount: number;
+}
+
+export interface TurnCityStat {
+	cityName: string;
+	deptName: string;
+	countryCode: string;
+	avgKmh: number;
+	maxKmh: number;
+	maxKmhTripIndexId: string | null;
+	avgLeanDeg: number;
+	maxLeanDeg: number;
+	maxLeanTripIndexId: string | null;
+	tripCount: number;
+}
+
+export interface TurnStats {
+	maxLeanAngle: number | null;
+	maxLeanTripIndexId: string | null;
+	sportPct: number | null;
+	avgSpeedKmh: number | null;
+	maxSpeedKmh: number | null;
+	avgPctInTurns: number | null;
+	tripsWithPositions: number;
+	topDepts: TurnDeptStat[];
+	topCities: TurnCityStat[];
+	leanDistribution: LeanBucket[];
+	avgLeanAngle: number | null;
+}
+
+export interface Records {
+	longestTrip: { km: number; dateLabel: string; from: string | null; to: string | null; indexId: string } | null;
+	longestDay: { km: number; dateLabel: string; tripCount: number } | null;
+	bestMonth: { km: number; label: string } | null;
+	firstTripDate: string | null;
+	totalKm: number;
+	totalTrips: number;
+	ridingDays: number;
+	longestStreak: number;
+	longestStreakFrom: string | null;
+	longestStreakTo: string | null;
+	longestBreak: { days: number; from: string; to: string } | null;
+	avgKmPerTrip: number;
+	totalRidingHours: number;
+	avgTripDurationMin: number;
+	topDaysOfWeek: string[];
+	departureHour: number | null;
+	pauseHour: number | null;
+	arrivalHour: number | null;
+}
+
+export interface MonthlyFuelCost {
+	key: string;
+	label: string;
+	pricePerL: number | null;
+	litersConsumed: number;
+	cost: number | null;
+	fillUps: number;
+}
+
+export interface FuelStats {
+	fuelType: string;
+	tankSizeL: number;
+	totalLiters: number;
+	totalCost: number | null;
+	avgConsumptionL100: number;
+	totalFillUps: number;
+	co2KgTotal: number;
+	costPerKm: number | null;
+	byMonth: MonthlyFuelCost[];
+}
+
+export interface KmRangePauseStats {
+	label: string;
+	avgPauses: number;
+	minPauses: number;
+	maxPauses: number;
+	avgDurationMin: number;
+	minDurationMin: number;
+	maxDurationMin: number;
+	tripCount: number;
+}
+
+export interface PauseStats {
+	tripsWithPositions: number;
+	avgPausesPerTrip: number | null;
+	avgPauseDurationMin: number | null;
+	maxPauseDurationMin: number | null;
+	maxPauseDateLabel: string | null;
+	maxPauseTripIndexId: string | null;
+	avgKmBeforeFirstPause: number | null;
+	longestSessionKm: number | null;
+	longestSessionTripIndexId: string | null;
+	byKmRange: KmRangePauseStats[];
+}
 
 export interface StatsModalData {
 	homeCity: string | null;
@@ -10,39 +203,131 @@ export interface StatsModalData {
 		country: string;
 		cities: { name: string; count: number; dates: string[] }[];
 	}[];
+	distanceStats: DistanceStats;
+	speedStats: SpeedStats;
+	turnStats: TurnStats;
+	pauseStats: PauseStats;
+	fuelStats: FuelStats;
+	records: Records;
 }
+
+type Tab = 'discovery' | 'distances' | 'speeds' | 'turns' | 'pauses' | 'fuel' | 'records';
 
 @Component({
 	selector: 'app-stats-modal',
 	imports: [],
 	templateUrl: './stats-modal.html',
 	styleUrl: './stats-modal.scss',
+	changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class StatsModalComponent {
+export class StatsModalComponent implements OnChanges, OnInit {
+	private fuel = inject(FuelService);
+	private logger = inject(LoggerService);
 	@Input() data: StatsModalData | null = null;
+	@Input() isFiltered = false;
 	@Output() close = new EventEmitter<void>();
+	@Output() selectTrip = new EventEmitter<string>();
+	@Output() applyFilter = new EventEmitter<FilterAction>();
+	@Output() fuelTypeChange = new EventEmitter<string>();
 
 	@ViewChild('modalBody') modalBody?: ElementRef<HTMLElement>;
 	@ViewChild('promptTextarea') promptTextarea?: ElementRef<HTMLTextAreaElement>;
 
+	activeTab = signal<Tab>('records');
 	showPrompt = signal(false);
 	tripDuration = signal(4);
+	turnsViewMode = signal<'speed' | 'angle' | 'both'>('both');
+	fuelLoading = signal(false);
+	readonly fuelTypes = ['SP98', 'SP95', 'E10'] as const;
+	fuelType = signal<'SP98' | 'SP95' | 'E10'>('SP98');
+	tankSize = signal<number>(15);
+
+	ngOnInit(): void {
+		this.fuel.getPrefs().then(({ fuelType, tankSize }) => {
+			this.fuelType.set(fuelType as 'SP98' | 'SP95' | 'E10');
+			this.tankSize.set(tankSize);
+		});
+	}
+
+	setTab(tab: Tab): void {
+		const t0 = performance.now();
+		this.activeTab.set(tab);
+		requestAnimationFrame(() => {
+			this.logger.log('Tab', `${tab} render: ${Math.round(performance.now() - t0)}ms`);
+		});
+	}
+
+	ngOnChanges(changes: SimpleChanges): void {
+		if (changes['data'] && this.data?.fuelStats.fuelType === this.fuelType()) {
+			this.fuelLoading.set(false);
+		}
+	}
+
+	setFuelType(type: 'SP98' | 'SP95' | 'E10'): void {
+		this.fuelType.set(type);
+		this.fuel.savePrefs(type, this.tankSize());
+		this.fuelLoading.set(true);
+		this.fuelTypeChange.emit(type);
+	}
+
+	setTankSize(size: number): void {
+		this.tankSize.set(size);
+		this.fuel.savePrefs(this.fuelType(), size);
+	}
+
+	openTrip(indexId: string | null | undefined): void {
+		if (!indexId) return;
+		this.selectTrip.emit(indexId);
+	}
+
+	filterDay(date: string): void {
+		this.applyFilter.emit({ type: 'day', date });
+	}
+
+	filterMonth(month: string): void {
+		this.applyFilter.emit({ type: 'month', month });
+	}
+
+	filterSeason(label: string): void {
+		const name = label.split(' ')[0];
+		this.applyFilter.emit({ type: 'season', name });
+	}
+
 	setDuration(event: Event): void {
 		this.tripDuration.set(+(event.target as HTMLInputElement).value);
 	}
+
 	tripMealBreaks(): number {
 		const h = this.tripDuration();
 		return h > 7 ? 2 : h > 4 ? 1 : 0;
 	}
+
 	tripStops(): number {
 		const remaining = this.tripDuration() - this.tripMealBreaks();
 		return Math.floor(remaining / (1 + 15 / 60));
 	}
+
 	tripKm(): number {
 		const ridingTime = this.tripDuration() - this.tripMealBreaks() - this.tripStops() * (15 / 60);
 		return Math.round(ridingTime * 60);
 	}
+
 	private expandedKey = signal<string | null>(null);
+	private expandedCountries = signal<Set<string>>(new Set());
+
+	toggleCountry(code: string): void {
+		const current = this.expandedCountries();
+		this.expandedCountries.set(current.has(code) ? new Set() : new Set([code]));
+	}
+
+	isCountryOpen(code: string): boolean {
+		return this.expandedCountries().has(code);
+	}
+
+	countryPct(depts: StatsModalData['depts']): number {
+		if (depts.length === 0) return 0;
+		return Math.round(depts.reduce((s, d) => s + d.pct, 0) / depts.length);
+	}
 
 	private static countryNames = new Intl.DisplayNames(['fr'], { type: 'region' });
 
@@ -62,11 +347,13 @@ export class StatsModalComponent {
 			if (!groups.has(c)) groups.set(c, []);
 			groups.get(c)!.push(dept);
 		}
-		return [...groups.entries()].map(([code, depts]) => ({
-			countryCode: code,
-			countryName: StatsModalComponent.safeCountryName(code),
-			depts,
-		}));
+		return [...groups.entries()]
+			.map(([code, depts]) => ({
+				countryCode: code,
+				countryName: StatsModalComponent.safeCountryName(code),
+				depts,
+			}))
+			.sort((a, b) => this.countryPct(b.depts) - this.countryPct(a.depts));
 	}
 
 	isVisible(deptCode: string, cityName: string): boolean {
@@ -149,5 +436,179 @@ export class StatsModalComponent {
 	toggleCity(deptCode: string, cityName: string): void {
 		const key = `${deptCode}-${cityName}`;
 		this.expandedKey.set(this.expandedKey() === key ? null : key);
+	}
+
+	formatKm(km: number): string {
+		return km.toLocaleString('fr-FR');
+	}
+
+	maxDayKm(): number {
+		return this.data?.distanceStats.topDays[0]?.km ?? 1;
+	}
+
+	maxMonthKm(): number {
+		return Math.max(...(this.data?.distanceStats.byMonth.map((m) => m.km) ?? [1]));
+	}
+
+	maxSeasonKm(): number {
+		return Math.max(...(this.data?.distanceStats.bySeason.map((s) => s.km) ?? [1]));
+	}
+
+	maxTopTripKm(): number {
+		return this.data?.distanceStats.topTrips[0]?.km ?? 1;
+	}
+
+	private combinedScore<T extends { maxKmh: number; maxLeanDeg: number }>(items: T[]): (item: T) => number {
+		const maxKmh = Math.max(...items.map((d) => d.maxKmh), 1);
+		const maxLean = Math.max(...items.map((d) => d.maxLeanDeg), 1);
+		return (item) => (item.maxKmh / maxKmh) * 0.5 + (item.maxLeanDeg / maxLean) * 0.5;
+	}
+
+	sortedDepts(): TurnDeptStat[] {
+		const depts = this.data?.turnStats.topDepts ?? [];
+		if (this.turnsViewMode() === 'angle') return [...depts].sort((a, b) => b.maxLeanDeg - a.maxLeanDeg);
+		if (this.turnsViewMode() === 'both') {
+			const score = this.combinedScore(depts);
+			return [...depts].sort((a, b) => score(b) - score(a));
+		}
+		return [...depts].sort((a, b) => b.maxKmh - a.maxKmh);
+	}
+
+	sortedCities(): TurnCityStat[] {
+		const cities = this.data?.turnStats.topCities ?? [];
+		if (this.turnsViewMode() === 'angle') return [...cities].sort((a, b) => b.maxLeanDeg - a.maxLeanDeg);
+		if (this.turnsViewMode() === 'both') {
+			const score = this.combinedScore(cities);
+			return [...cities].sort((a, b) => score(b) - score(a));
+		}
+		return [...cities].sort((a, b) => b.maxKmh - a.maxKmh);
+	}
+
+	countryFlag(code: string): string {
+		return getCountryFlag(code);
+	}
+
+	hasMultipleCountries(items: { countryCode: string }[]): boolean {
+		return new Set(items.map((i) => i.countryCode)).size > 1;
+	}
+
+	hasMultipleCountriesInTurns(): boolean {
+		const codes = new Set([
+			...this.sortedDepts().map((d) => d.countryCode),
+			...this.sortedCities().map((c) => c.countryCode),
+		]);
+		return codes.size > 1;
+	}
+
+	hasMultipleCountriesInRoutes(items: { fromCountryCode: string; toCountryCode: string }[]): boolean {
+		const codes = new Set(items.flatMap((i) => [i.fromCountryCode, i.toCountryCode]));
+		return codes.size > 1;
+	}
+
+	routeWithFlags(from: string | null, to: string | null, fromCC: string, toCC: string, show: boolean): string {
+		if (!show) return `${from ?? ''}${from && to ? ' → ' : ''}${to ?? ''}`;
+		const fromFlag = this.countryFlag(fromCC);
+		const toFlag = this.countryFlag(toCC);
+		const fromStr = from ? `${from} ${fromFlag}` : '';
+		const toStr = to ? `${to} ${toFlag}` : '';
+		return `${fromStr}${fromStr && toStr ? ' → ' : ''}${toStr}`;
+	}
+
+	maxTurnDeptVal(): number {
+		const depts = this.sortedDepts();
+		if (this.turnsViewMode() === 'angle') return Math.max(...depts.map((d) => d.maxLeanDeg), 1);
+		return Math.max(...depts.map((d) => d.maxKmh), 1);
+	}
+
+	maxTurnCityVal(): number {
+		const cities = this.sortedCities();
+		if (this.turnsViewMode() === 'angle') return Math.max(...cities.map((c) => c.maxLeanDeg), 1);
+		return Math.max(...cities.map((c) => c.maxKmh), 1);
+	}
+
+	cycleTurnsMode(): void {
+		const next: Record<string, 'speed' | 'angle' | 'both'> = { speed: 'angle', angle: 'both', both: 'speed' };
+		this.turnsViewMode.set(next[this.turnsViewMode()]);
+	}
+
+	turnsToggleLabel(): string {
+		return { speed: 'km/h', angle: '°', both: 'km/h·°' }[this.turnsViewMode()];
+	}
+
+	barPct(val: number, max: number): number {
+		return Math.round((val / Math.max(max, 1)) * 100);
+	}
+
+	// Taille + letter-spacing calculés ensemble pour garantir l'effet escalier
+	dayStyles(): { fontSize: string; letterSpacing: string }[] {
+		const days = this.data?.records.topDaysOfWeek ?? [];
+		const n = days.length;
+		if (n === 0) return [];
+		const MIN = 0.7;
+		const MAX = 1.1;
+		// Letter-spacing décroissant (en em relatif à la font-size)
+		const LS_EM = [0.03, 0.01, 0];
+		const STEP = 1.3;
+		const sizes = new Array<number>(n);
+		const visuals = new Array<number>(n);
+		// La largeur visuelle effective = fontSize × (1 + letterSpacing_em) × charCount
+		sizes[n - 1] = MIN;
+		visuals[n - 1] = MIN * (1 + LS_EM[n - 1]) * days[n - 1].length;
+		for (let i = n - 2; i >= 0; i--) {
+			const needed = (visuals[i + 1] * STEP) / ((1 + LS_EM[i]) * days[i].length);
+			sizes[i] = Math.min(MAX, Math.max(sizes[i + 1], needed));
+			visuals[i] = sizes[i] * (1 + LS_EM[i]) * days[i].length;
+		}
+		return sizes.map((s, i) => ({
+			fontSize: `${s.toFixed(3)}rem`,
+			letterSpacing: `${(LS_EM[i] * s).toFixed(3)}rem`,
+		}));
+	}
+
+	// Retourne les stats essence pour le type et la taille du réservoir sélectionnés
+	fuelData(): FuelStats | null {
+		if (!this.data) return null;
+		const base = this.data.fuelStats;
+		const ft = this.fuelType();
+		const tank = this.tankSize();
+		if (base.fuelType === ft && base.tankSizeL === tank) return base;
+		// Recalcule localement le nombre de fill-ups et le coût si changement de réservoir
+		// (le type de carburant change les prix — géré via le signal dans map.ts au reload)
+		const byMonth = base.byMonth.map((m) => ({
+			...m,
+			fillUps: estimateFillUps(m.litersConsumed, tank),
+		}));
+		return { ...base, tankSizeL: tank, byMonth, totalFillUps: byMonth.reduce((s, m) => s + m.fillUps, 0) };
+	}
+
+	avgFillUpsPerMonth(fuel: FuelStats): number {
+		if (!fuel.byMonth.length) return 0;
+		return Math.round((fuel.totalFillUps / fuel.byMonth.length) * 10) / 10;
+	}
+
+	maxFuelMonthCost(): number {
+		return Math.max(...(this.data?.fuelStats.byMonth.map((m) => m.cost ?? 0) ?? [1]), 1);
+	}
+
+	maxFuelMonthLiters(): number {
+		return Math.max(...(this.data?.fuelStats.byMonth.map((m) => m.litersConsumed) ?? [1]), 1);
+	}
+
+	formatEur(v: number): string {
+		return v.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';
+	}
+
+	formatHours(h: number): string {
+		const days = Math.floor(h / 24);
+		const remaining = Math.round(h % 24);
+		if (days > 0) return `${days}j ${remaining}h`;
+		return `${Math.round(h)}h`;
+	}
+
+	formatDuration(min: number): string {
+		if (min < 60) return `${Math.round(min)} min`;
+		const h = Math.floor(min / 60);
+		const m = Math.round(min % 60);
+		return m > 0 ? `${h}h ${m}min` : `${h}h`;
 	}
 }

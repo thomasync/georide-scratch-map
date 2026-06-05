@@ -18,6 +18,9 @@ import { TripWithCoords } from '../map';
 import { GeoRidePosition } from '../../../core/services/georide-api';
 import { extractCity } from '../../../core/utils/address';
 import { computeAltProfile, haversineKm } from '../../../core/utils/elevation';
+import { isLinkedTrip } from '../../../core/utils/trip-session';
+import { FuelService } from '../../../core/services/fuel.service';
+import { estimateLiters } from '../../../core/utils/fuel-consumption';
 import { DatabaseService } from '../../../core/services/database';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler, Tooltip);
@@ -48,6 +51,7 @@ interface CityEntry {
 export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	private cdr = inject(ChangeDetectorRef);
 	private db = inject(DatabaseService);
+	private fuel = inject(FuelService);
 
 	@Input() trip: TripWithCoords | null = null;
 	@Input() positions: GeoRidePosition[] | null = null;
@@ -63,6 +67,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	@Output() followPosition = new EventEmitter<[number, number] | null>();
 	@Output() fitTripEvent = new EventEmitter<void>();
 	@Output() selectTripEvent = new EventEmitter<TripWithCoords>();
+	@Output() filterDate = new EventEmitter<string>(); // YYYY-MM-DD
 	@Output() showStatPoints = new EventEmitter<[number, number][]>();
 	@Output() animatePath = new EventEmitter<[number, number][]>();
 	@Output() showCitySegment = new EventEmitter<[number, number][]>();
@@ -83,6 +88,8 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	maxLeftDeg: number | null = null;
 	maxRightDeg: number | null = null;
 	sinuosity: number | null = null;
+	estimatedLiters: number | null = null;
+	estimatedCost: number | null = null;
 	pctInTurn: number | null = null;
 	avgSpeedInTurns: number | null = null;
 	maxSpeedInTurns: number | null = null;
@@ -454,6 +461,18 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		this.sinuosity = crow > 0.5 ? Math.round((t.distance / 1000 / crow) * 10) / 10 : null;
 		const elapsedMs = new Date(t.endTime).getTime() - new Date(t.startTime).getTime();
 		this.totalDurationStr = formatDuration(elapsedMs);
+		// Estimation fuel — litres sans positions (positions améliorent la précision via buildChartData)
+		this.estimatedLiters = Math.round(estimateLiters(t.distance, t.averageSpeed) * 10) / 10;
+		this.estimatedCost = null;
+		const month = t.startTime.substring(0, 7);
+		this.fuel.getPrefs().then(({ fuelType }) =>
+			this.fuel.getPriceOrNearest(fuelType, month, []).then((price) => {
+				if (price !== null && this.trip?.indexId === t.indexId) {
+					this.estimatedCost = Math.round(this.estimatedLiters! * price * 100) / 100;
+					this.cdr.markForCheck();
+				}
+			}),
+		);
 	}
 
 	private buildChartData(): void {
@@ -1101,29 +1120,3 @@ function formatTime(iso: string): string {
 }
 
 // Distance approx en km entre deux points GPS (formule plate, suffisante pour < 50km)
-function roughDistKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-	const dLat = (lat2 - lat1) * 111;
-	const dLon = (lon2 - lon1) * 111 * Math.cos(((lat1 + lat2) / 2) * (Math.PI / 180));
-	return Math.sqrt(dLat * dLat + dLon * dLon);
-}
-
-// Deux trajets sont "liés" si un endpoint de B est proche d'un endpoint de A
-// ET l'écart temporel entre eux est inférieur à MAX_GAP_H heures.
-function isLinkedTrip(a: TripWithCoords, b: TripWithCoords, maxGapH = 3): boolean {
-	const DIST_KM = 3; // 3 km de tolérance GPS/parking
-
-	const aEnd = new Date(a.endTime).getTime();
-	const bStart = new Date(b.startTime).getTime();
-	const bEnd = new Date(b.endTime).getTime();
-	const aStart = new Date(a.startTime).getTime();
-	const gapMs = Math.min(Math.abs(aEnd - bStart), Math.abs(bEnd - aStart));
-	if (gapMs > maxGapH * 3_600_000) return false;
-
-	const pairs: [number, number, number, number][] = [
-		[a.startLat, a.startLon, b.startLat, b.startLon],
-		[a.startLat, a.startLon, b.endLat, b.endLon],
-		[a.endLat, a.endLon, b.startLat, b.startLon],
-		[a.endLat, a.endLon, b.endLat, b.endLon],
-	];
-	return pairs.some(([la1, lo1, la2, lo2]) => roughDistKm(la1, lo1, la2, lo2) <= DIST_KM);
-}

@@ -23,17 +23,42 @@ import { ScreenshotService } from '../../core/services/screenshot';
 import { DemoService, DemoData } from '../../core/services/demo';
 import { Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
-import { DatabaseService, StoredTrip } from '../../core/services/database';
+import { DatabaseService, StoredTrip, TripWithCoords } from '../../core/services/database';
+export type { TripWithCoords };
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
 import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { LUXEMBOURG_FEATURES } from '../../core/data/luxembourg';
 import { DevBoxComponent } from './dev-box';
-import { StatsModalComponent, StatsModalData } from './stats-modal';
+import {
+	StatsModalComponent,
+	StatsModalData,
+	DistanceStats,
+	SpeedStats,
+	Records,
+	TopTrip,
+	TurnStats,
+	TurnDeptStat,
+	TurnCityStat,
+	FilterAction,
+	PauseStats,
+	FuelStats,
+	MonthlyFuelCost,
+} from './stats-modal';
+import { FuelService } from '../../core/services/fuel.service';
+import { haversineKm } from '../../core/utils/elevation';
+import {
+	estimateLiters,
+	estimateCost,
+	estimateFillUps,
+	estimateCO2Kg,
+	costPerKm as fuelCostPerKm,
+	CO2_KG_PER_L,
+} from '../../core/utils/fuel-consumption';
+import { buildSessions } from '../../core/utils/trip-session';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
 
 type Mode = 'hex' | 'dept' | 'polyline';
-export type TripWithCoords = StoredTrip & { coords: [number, number][] };
 
 interface AltProfile {
 	minAlt: number;
@@ -77,38 +102,7 @@ const DATE_FILTER_LABELS: Record<DateFilterPreset, string> = {
 	custom: 'Choisir…',
 };
 
-const NEIGHBORING_COUNTRIES = [
-	{ code: 'ES', name: 'Espagne', flag: '🇪🇸', minLat: 35.9, maxLat: 43.8, minLon: -9.3, maxLon: 4.4 },
-	{ code: 'AD', name: 'Andorre', flag: '🇦🇩', minLat: 42.42, maxLat: 42.66, minLon: 1.4, maxLon: 1.8 },
-	{ code: 'PT', name: 'Portugal', flag: '🇵🇹', minLat: 36.8, maxLat: 42.2, minLon: -9.5, maxLon: -6.2 },
-	{ code: 'BE', name: 'Belgique', flag: '🇧🇪', minLat: 49.5, maxLat: 51.5, minLon: 2.5, maxLon: 6.4 },
-	{ code: 'NL', name: 'Pays-Bas', flag: '🇳🇱', minLat: 50.7, maxLat: 53.6, minLon: 3.3, maxLon: 7.2 },
-	{ code: 'LU', name: 'Luxembourg', flag: '🇱🇺', minLat: 49.4, maxLat: 50.2, minLon: 5.7, maxLon: 6.5 },
-	{ code: 'DE', name: 'Allemagne', flag: '🇩🇪', minLat: 47.3, maxLat: 55.1, minLon: 6.0, maxLon: 15.0 },
-	{ code: 'CH', name: 'Suisse', flag: '🇨🇭', minLat: 45.8, maxLat: 47.8, minLon: 6.0, maxLon: 10.5 },
-	{ code: 'LI', name: 'Liechtenstein', flag: '🇱🇮', minLat: 47.05, maxLat: 47.27, minLon: 9.47, maxLon: 9.64 },
-	{ code: 'AT', name: 'Autriche', flag: '🇦🇹', minLat: 46.4, maxLat: 49.0, minLon: 9.5, maxLon: 17.2 },
-	{ code: 'IT', name: 'Italie', flag: '🇮🇹', minLat: 36.6, maxLat: 47.1, minLon: 7.6, maxLon: 18.5 },
-	{ code: 'MC', name: 'Monaco', flag: '🇲🇨', minLat: 43.72, maxLat: 43.78, minLon: 7.37, maxLon: 7.44 },
-	{ code: 'SI', name: 'Slovénie', flag: '🇸🇮', minLat: 45.4, maxLat: 46.9, minLon: 13.4, maxLon: 16.6 },
-	{ code: 'MA', name: 'Maroc', flag: '🇲🇦', minLat: 27.7, maxLat: 35.9, minLon: -13.2, maxLon: -1.0 },
-	{ code: 'GB', name: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', minLat: 49.9, maxLat: 55.8, minLon: -5.7, maxLon: 1.8 },
-	{ code: 'IE', name: 'Irlande', flag: '🇮🇪', minLat: 51.4, maxLat: 55.4, minLon: -10.5, maxLon: -5.9 },
-	{ code: 'IM', name: 'Île de Man', flag: '🇮🇲', minLat: 54.0, maxLat: 54.5, minLon: -4.85, maxLon: -4.3 },
-	{ code: 'SCO', name: 'Écosse', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', minLat: 54.6, maxLat: 60.9, minLon: -7.6, maxLon: -0.7 },
-	{ code: 'WAL', name: 'Pays de Galles', flag: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', minLat: 51.3, maxLat: 53.5, minLon: -5.3, maxLon: -2.6 },
-	{ code: 'HR', name: 'Croatie', flag: '🇭🇷', minLat: 42.4, maxLat: 46.6, minLon: 13.5, maxLon: 19.5 },
-	{ code: 'DK', name: 'Danemark', flag: '🇩🇰', minLat: 54.5, maxLat: 57.8, minLon: 8.0, maxLon: 15.2 },
-	{ code: 'SE', name: 'Suède', flag: '🇸🇪', minLat: 55.3, maxLat: 69.1, minLon: 10.9, maxLon: 24.2 },
-	{ code: 'NO', name: 'Norvège', flag: '🇳🇴', minLat: 57.9, maxLat: 71.2, minLon: 4.5, maxLon: 31.1 },
-	{ code: 'CZ', name: 'République tchèque', flag: '🇨🇿', minLat: 48.5, maxLat: 51.1, minLon: 12.1, maxLon: 18.9 },
-	{ code: 'HU', name: 'Hongrie', flag: '🇭🇺', minLat: 45.7, maxLat: 48.6, minLon: 16.1, maxLon: 22.9 },
-	{ code: 'RO', name: 'Roumanie', flag: '🇷🇴', minLat: 43.6, maxLat: 48.3, minLon: 20.3, maxLon: 29.7 },
-	{ code: 'GR', name: 'Grèce', flag: '🇬🇷', minLat: 34.8, maxLat: 41.8, minLon: 19.5, maxLon: 28.3 },
-	{ code: 'TN', name: 'Tunisie', flag: '🇹🇳', minLat: 30.2, maxLat: 37.5, minLon: 7.5, maxLon: 11.6 },
-	{ code: 'IS', name: 'Islande', flag: '🇮🇸', minLat: 63.3, maxLat: 66.6, minLon: -24.5, maxLon: -13.5 },
-] as const;
-type NeighboringCountry = (typeof NEIGHBORING_COUNTRIES)[number];
+import { NEIGHBORING_COUNTRIES, NeighboringCountry } from '../../core/data/countries';
 
 const SEASONS = [
 	{ name: 'Printemps', emoji: '🌸', months: [3, 4, 5] as number[] },
@@ -153,6 +147,10 @@ export class Map {
 	private router = inject(Router);
 	mapSettings = inject(MapSettingsService);
 	private db = inject(DatabaseService);
+	private fuel = inject(FuelService);
+
+	fuelPrices = signal<Record<string, number | null>>({});
+	private fuelType = 'SP98';
 
 	get isDemo(): boolean {
 		return this.router.url.startsWith('/demo');
@@ -167,9 +165,8 @@ export class Map {
 	hexHoverSpeedMax = signal(null as number | null);
 	hexagonCount = signal(0);
 	streak = signal(0);
+	streakVisible = signal(false);
 	fullRegionCount = signal(0);
-	allTripsMaxSpeedKmh = signal(0);
-	allTripsMaxDistanceKm = signal(0);
 	countryCountStat = signal(1);
 	cityCountStat = signal(0);
 	error = signal('');
@@ -333,12 +330,23 @@ export class Map {
 		);
 	}
 
+	private computeStreak(): number {
+		const days = new Set(this.allTripsWithCoords.map((t) => t.startTime.substring(0, 10)));
+		let count = 0;
+		const today = new Date();
+		for (let i = 0; i < 366; i++) {
+			const d = new Date(today);
+			d.setDate(d.getDate() - i);
+			if (days.has(d.toISOString().substring(0, 10))) count++;
+			else if (i > 0) break;
+		}
+		this.streakVisible.set(false);
+		return count;
+	}
+
 	private updateExtraStats(): void {
 		const trips = this.tripsWithCoords;
 		if (!trips.length) {
-			this.streak.set(0);
-			this.allTripsMaxSpeedKmh.set(0);
-			this.allTripsMaxDistanceKm.set(0);
 			this.countryCountStat.set(0);
 			this.cityCountStat.set(0);
 			return;
@@ -370,21 +378,8 @@ export class Map {
 			uniqueCities.add(endCity);
 		}
 		this.cityCountStat.set(uniqueCities.size);
-		// Streak
-		const days = new Set(trips.map((t) => t.startTime.substring(0, 10)));
-		let streakCount = 0;
-		const today = new Date();
-		for (let i = 0; i < 366; i++) {
-			const d = new Date(today);
-			d.setDate(d.getDate() - i);
-			if (days.has(d.toISOString().substring(0, 10))) streakCount++;
-			else if (i > 0) break;
-		}
-		this.streak.set(streakCount);
 		this.maxSpeedTrip = trips.reduce((best, t) => (t.maxSpeed > best.maxSpeed ? t : best), trips[0]);
-		this.allTripsMaxSpeedKmh.set(Math.round(this.maxSpeedTrip.maxSpeed * 1.852));
 		this.maxDistanceTrip = trips.reduce((best, t) => (t.distance > best.distance ? t : best), trips[0]);
-		this.allTripsMaxDistanceKm.set(Math.round(this.maxDistanceTrip.distance / 1000));
 	}
 
 	private updateFullRegionCount(): void {
@@ -604,7 +599,8 @@ export class Map {
 		}, 100);
 
 		if (!this.focusedDeptFeature && this.tripsWithCoords.length > 0) {
-			this.viewMyTrips();
+			const isFiltered = this.dateFilter() !== 'all' || this.seasonFilter() !== null;
+			this.viewMyTrips(true, 1.2, isFiltered ? 11.5 : undefined);
 		}
 	}
 
@@ -667,7 +663,7 @@ export class Map {
 		this.viewMenuHideTimer = setTimeout(() => this.showViewMenu.set(false), 200);
 	}
 
-	viewMyTrips(animate = true, speed = 1.2): void {
+	viewMyTrips(animate = true, speed = 1.2, maxZoom?: number): void {
 		if (!this.map || this.tripsWithCoords.length === 0) return;
 		let minLat = Infinity,
 			maxLat = -Infinity,
@@ -687,7 +683,7 @@ export class Map {
 		if (maxLat - minLat <= THRESHOLD && maxLon - minLon <= THRESHOLD) {
 			this.fitToVisited(
 				this.tripsWithCoords.map((t) => t.coords),
-				undefined,
+				maxZoom,
 				speed,
 				animate,
 			);
@@ -696,7 +692,7 @@ export class Map {
 		// Delta trop grand : fitToVisited sur le dernier trajet réalisé avec maxZoom standard
 		const lastTrip = [...this.tripsWithCoords].sort((a, b) => b.startTime.localeCompare(a.startTime))[0];
 		if (lastTrip) {
-			this.fitToVisited([lastTrip.coords], this.mapSettings.fitToVisitedMaxZoom(), speed, animate);
+			this.fitToVisited([lastTrip.coords], maxZoom ?? this.mapSettings.fitToVisitedMaxZoom(), speed, animate);
 		}
 	}
 
@@ -827,8 +823,20 @@ export class Map {
 	}
 
 	openStatsModal(): void {
+		const t0 = performance.now();
 		this.statsModalData.set(this.computeStatsData());
 		this.showStatsModal.set(true);
+		this.loadFuelPrices();
+		requestAnimationFrame(() => this.logger.log('Recap', `open in ${Math.round(performance.now() - t0)}ms`));
+		// Charger les positions si pas encore fait, puis mettre à jour les stats
+		if (this.allTripsWithCoords.some((t) => !t.positions?.length)) {
+			this.syncTripAltitudes().subscribe({
+				next: () => {
+					this.statsModalData.set(this.computeStatsData());
+				},
+				error: () => {},
+			});
+		}
 	}
 
 	closeStatsModal(): void {
@@ -836,6 +844,29 @@ export class Map {
 	}
 
 	private computeStatsData(): StatsModalData {
+		// Précomputer dept code + name par trip (évite O(n × depts) répété pour chaque lookup)
+		const tripDeptCode: Record<string, string | null> = {};
+		const tripDeptName: Record<string, string | null> = {};
+		const tripCountryCode: Record<string, string> = {};
+		const tripStartCountryCode: Record<string, string> = {};
+		for (const trip of this.tripsWithCoords) {
+			// Pays de destination (end)
+			const code = this.findDeptCodeForPoint(trip.endLon, trip.endLat);
+			tripDeptCode[trip.indexId] = code;
+			const feat = code ? this.departments?.features.find((f) => f.properties?.['code'] === code) : null;
+			tripDeptName[trip.indexId] = feat ? ((feat.properties?.['nom'] as string) ?? code) : null;
+			const deptCountry = feat?.properties?.['country'] as string | undefined;
+			tripCountryCode[trip.indexId] = deptCountry ?? this.countryForCoords(trip.endLat, trip.endLon);
+			// Pays de départ (start) — même logique dept-first
+			const startCode = this.findDeptCodeForPoint(trip.startLon, trip.startLat);
+			const startFeat = startCode
+				? this.departments?.features.find((f) => f.properties?.['code'] === startCode)
+				: null;
+			const startDeptCountry = startFeat?.properties?.['country'] as string | undefined;
+			tripStartCountryCode[trip.indexId] =
+				startDeptCountry ?? this.countryForCoords(trip.startLat, trip.startLon);
+		}
+
 		const startCityCount: Record<string, number> = {};
 		for (const trip of this.tripsWithCoords) {
 			const city = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
@@ -849,7 +880,7 @@ export class Map {
 			const startCity = this.extractCity(trip.niceStartAddress ?? trip.startAddress);
 			const endCity = this.extractCity(trip.niceEndAddress ?? trip.endAddress);
 			if (!endCity || endCity === startCity || endCity === homeCity) continue;
-			const code = this.findDeptCodeForPoint(trip.endLon, trip.endLat);
+			const code = tripDeptCode[trip.indexId] ?? null;
 			if (!code) continue;
 			if (!deptCities[code]) deptCities[code] = {};
 			if (!deptCities[code][endCity]) deptCities[code][endCity] = { count: 0, dates: [] };
@@ -904,7 +935,701 @@ export class Map {
 			}
 		}
 
-		return { homeCity, depts };
+		// DistanceStats
+		const fmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+		const fmtMonth = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' });
+		const kmByDay: Record<string, { km: number; trips: number; indexIds: string[] }> = {};
+		const kmByMonth: Record<string, { km: number; trips: number }> = {};
+		for (const trip of this.tripsWithCoords) {
+			const day = trip.startTime.substring(0, 10);
+			const month = trip.startTime.substring(0, 7);
+			const km = trip.distance / 1000;
+			if (!kmByDay[day]) kmByDay[day] = { km: 0, trips: 0, indexIds: [] };
+			kmByDay[day].km += km;
+			kmByDay[day].trips++;
+			kmByDay[day].indexIds.push(trip.indexId);
+			if (!kmByMonth[month]) kmByMonth[month] = { km: 0, trips: 0 };
+			kmByMonth[month].km += km;
+			kmByMonth[month].trips++;
+		}
+		const topDays = Object.entries(kmByDay)
+			.sort(([, a], [, b]) => b.km - a.km)
+			.slice(0, 10)
+			.map(([date, s]) => ({
+				date,
+				dateLabel: fmt.format(new Date(date + 'T12:00:00')),
+				km: Math.round(s.km),
+				tripCount: s.trips,
+				indexIds: s.indexIds,
+			}));
+		const byMonth = Object.entries(kmByMonth)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([key, s]) => ({
+				key,
+				label: fmtMonth.format(new Date(key + '-15')),
+				km: Math.round(s.km),
+				tripCount: s.trips,
+			}));
+		const kmBySeason: Record<string, { km: number; trips: number }> = {};
+		for (const { key, km, tripCount } of byMonth) {
+			const [year, mon] = key.split('-').map(Number);
+			const seasonLabel = this.tripSeason(year, mon);
+			if (!kmBySeason[seasonLabel]) kmBySeason[seasonLabel] = { km: 0, trips: 0 };
+			kmBySeason[seasonLabel].km += km;
+			kmBySeason[seasonLabel].trips += tripCount;
+		}
+		const bySeason = Object.entries(kmBySeason)
+			.sort(([a], [b]) => this.seasonSortKey(a) - this.seasonSortKey(b))
+			.map(([label, s]) => ({ label, km: s.km, tripCount: s.trips }));
+		// Top trajets point-à-point (pas des boucles : start/end > 10 km)
+		const topTrips: TopTrip[] = [...this.tripsWithCoords]
+			.filter((t) => t.distance > 0 && haversineKm(t.startLat, t.startLon, t.endLat, t.endLon) > 10)
+			.sort((a, b) => b.distance - a.distance)
+			.slice(0, 10)
+			.map((t) => ({
+				indexId: t.indexId,
+				date: t.startTime.substring(0, 10),
+				dateLabel: fmt.format(new Date(t.startTime.substring(0, 10) + 'T12:00:00')),
+				km: Math.round(t.distance / 1000),
+				from: this.extractCity(t.niceStartAddress ?? t.startAddress),
+				to: this.extractCity(t.niceEndAddress ?? t.endAddress),
+				fromCountryCode: tripStartCountryCode[t.indexId] ?? 'FR',
+				toCountryCode: tripCountryCode[t.indexId] ?? 'FR',
+			}));
+		const distanceStats: DistanceStats = { topDays, byMonth, bySeason, topTrips };
+
+		// SpeedStats
+		const validTrips = this.tripsWithCoords.filter((t) => t.maxSpeed > 0);
+		const globalMaxKmh =
+			validTrips.length > 0 ? Math.round(Math.max(...validTrips.map((t) => t.maxSpeed)) * 1.852) : 0;
+		const totalDist = validTrips.reduce((s, t) => s + t.distance, 0);
+		const globalAvgKmh =
+			totalDist > 0
+				? Math.round((validTrips.reduce((s, t) => s + t.averageSpeed * t.distance, 0) / totalDist) * 1.852)
+				: 0;
+		const maxSpeedTripRaw =
+			validTrips.length > 0 ? validTrips.reduce((best, t) => (t.maxSpeed > best.maxSpeed ? t : best)) : null;
+		const topByMax = [...validTrips]
+			.sort((a, b) => b.maxSpeed - a.maxSpeed)
+			.slice(0, 10)
+			.map((t) => ({
+				indexId: t.indexId,
+				date: t.startTime.substring(0, 10),
+				dateLabel: fmt.format(new Date(t.startTime.substring(0, 10) + 'T12:00:00')),
+				maxKmh: Math.round(t.maxSpeed * 1.852),
+				avgKmh: Math.round(t.averageSpeed * 1.852),
+				km: Math.round(t.distance / 1000),
+				from: this.extractCity(t.niceStartAddress ?? t.startAddress),
+				to: this.extractCity(t.niceEndAddress ?? t.endAddress),
+				fromCountryCode: tripStartCountryCode[t.indexId] ?? 'FR',
+				toCountryCode: tripCountryCode[t.indexId] ?? 'FR',
+			}));
+		const tripsWithAngle = this.tripsWithCoords.filter((t) => t.maxAngle != null && t.maxAngle !== 0);
+		const maxLeanAngle =
+			tripsWithAngle.length > 0
+				? Math.round(Math.max(...tripsWithAngle.map((t) => Math.abs(t.maxAngle - 90))))
+				: null;
+		const maxLeanTripRaw =
+			tripsWithAngle.length > 0
+				? tripsWithAngle.reduce((best, t) =>
+						Math.abs(t.maxAngle - 90) > Math.abs(best.maxAngle - 90) ? t : best,
+					)
+				: null;
+		const sportPct =
+			tripsWithAngle.length > 0
+				? Math.round(
+						(tripsWithAngle.filter((t) => Math.abs(t.maxAngle - 90) > 30).length / tripsWithAngle.length) *
+							100,
+					)
+				: null;
+		const speedStats: SpeedStats = {
+			globalMaxKmh,
+			globalAvgKmh,
+			maxSpeedTripIndexId: maxSpeedTripRaw?.indexId ?? null,
+			topByMax,
+		};
+
+		// TurnStats (positions requises)
+		const TURN_DEG = 15;
+		const tripsWithPos = this.tripsWithCoords.filter((t) => t.positions && t.positions.length > 0);
+		let avgSpeedKmh: number | null = null;
+		let maxSpeedKmh: number | null = null;
+		let avgPctInTurns: number | null = null;
+		const deptTurnMap: Record<
+			string,
+			{
+				speeds: number[];
+				leans: number[];
+				maxKmh: number;
+				maxKmhIndexId: string | null;
+				maxLeanDeg: number;
+				maxLeanIndexId: string | null;
+			}
+		> = {};
+		if (tripsWithPos.length > 0) {
+			const allTurnSpeeds: number[] = [];
+			const perTripPcts: number[] = [];
+			let globalMaxInTurns = 0;
+			for (const trip of tripsWithPos) {
+				const positions = trip.positions!;
+				const inTurn = positions.filter((p) => Math.abs(p.angle - 90) > TURN_DEG && p.speed * 1.852 > 10);
+				if (inTurn.length > 0) {
+					allTurnSpeeds.push(...inTurn.map((p) => p.speed));
+					const tripMax = Math.max(...inTurn.map((p) => p.speed));
+					if (tripMax > globalMaxInTurns) globalMaxInTurns = tripMax;
+					const deptName = tripDeptName[trip.indexId] ?? null;
+					if (deptName) {
+						if (!deptTurnMap[deptName])
+							deptTurnMap[deptName] = {
+								speeds: [],
+								leans: [],
+								maxKmh: 0,
+								maxKmhIndexId: null,
+								maxLeanDeg: 0,
+								maxLeanIndexId: null,
+							};
+						deptTurnMap[deptName].speeds.push(...inTurn.map((p) => p.speed * 1.852));
+						const turnLeans = inTurn.map((p) => Math.abs(p.angle - 90));
+						deptTurnMap[deptName].leans.push(...turnLeans);
+						const deptMax = tripMax * 1.852;
+						if (deptMax > deptTurnMap[deptName].maxKmh) {
+							deptTurnMap[deptName].maxKmh = deptMax;
+							deptTurnMap[deptName].maxKmhIndexId = trip.indexId;
+						}
+						const tripMaxLean = Math.max(...turnLeans);
+						if (tripMaxLean > deptTurnMap[deptName].maxLeanDeg) {
+							deptTurnMap[deptName].maxLeanDeg = tripMaxLean;
+							deptTurnMap[deptName].maxLeanIndexId = trip.indexId;
+						}
+					}
+				}
+				perTripPcts.push(Math.round((inTurn.length / positions.length) * 100));
+			}
+			if (allTurnSpeeds.length > 0) {
+				avgSpeedKmh = Math.round((allTurnSpeeds.reduce((s, v) => s + v, 0) / allTurnSpeeds.length) * 1.852);
+				maxSpeedKmh = Math.round(globalMaxInTurns * 1.852);
+			}
+			avgPctInTurns = Math.round(perTripPcts.reduce((s, v) => s + v, 0) / perTripPcts.length);
+		}
+		const topDepts: TurnDeptStat[] = Object.entries(deptTurnMap)
+			.map(([deptName, { speeds, leans, maxKmh, maxKmhIndexId, maxLeanDeg, maxLeanIndexId }]) => {
+				const tripInDept = tripsWithPos.filter((t) => tripDeptName[t.indexId] === deptName);
+				const countryCode = tripInDept[0] ? (tripCountryCode[tripInDept[0].indexId] ?? 'FR') : 'FR';
+				return {
+					deptName,
+					countryCode,
+					avgKmh: Math.round(speeds.reduce((s, v) => s + v, 0) / speeds.length),
+					maxKmh: Math.round(maxKmh),
+					maxKmhTripIndexId: maxKmhIndexId,
+					avgLeanDeg: leans.length > 0 ? Math.round(leans.reduce((s, v) => s + v, 0) / leans.length) : 0,
+					maxLeanDeg: Math.round(maxLeanDeg),
+					maxLeanTripIndexId: maxLeanIndexId,
+					tripCount: tripInDept.length,
+				};
+			})
+			.sort((a, b) => b.avgKmh - a.avgKmh)
+			.slice(0, 8);
+
+		// Villes proches des virages : pour chaque trajet avec positions, trouver le centre des virages
+		// et le matcher à la ville la plus proche parmi les endpoints connus
+		const uniqueCityEndpoints: { city: string; deptName: string; countryCode: string; lat: number; lon: number }[] =
+			[];
+		const seenCities = new Set<string>();
+		for (const t of this.tripsWithCoords) {
+			for (const [addr, lat, lon] of [
+				[t.niceStartAddress ?? t.startAddress, t.startLat, t.startLon] as [string | null, number, number],
+				[t.niceEndAddress ?? t.endAddress, t.endLat, t.endLon] as [string | null, number, number],
+			]) {
+				const city = this.extractCity(addr);
+				if (!city || seenCities.has(city)) continue;
+				seenCities.add(city);
+				const deptName = tripDeptName[t.indexId] ?? '';
+				const bboxCountry = this.countryForCoords(lat, lon);
+				// Pour les petits pays à bbox très précise (Monaco, Andorre…), la bbox prime sur le dept
+				// Pour les grands pays (Espagne…), le dept prime (leurs bbox couvrent la France)
+				const bboxArea =
+					bboxCountry !== 'FR'
+						? (() => {
+								const c = NEIGHBORING_COUNTRIES.find((x) => x.code === bboxCountry);
+								return c ? (c.maxLat - c.minLat) * (c.maxLon - c.minLon) : 999;
+							})()
+						: 999;
+				const countryCode =
+					bboxCountry !== 'FR' && bboxArea < 0.5 ? bboxCountry : (tripCountryCode[t.indexId] ?? 'FR');
+				uniqueCityEndpoints.push({ city, deptName, countryCode, lat, lon });
+			}
+		}
+		const cityTurnMap: Record<
+			string,
+			{
+				speeds: number[];
+				leans: number[];
+				maxKmh: number;
+				maxKmhIndexId: string | null;
+				maxLeanDeg: number;
+				maxLeanIndexId: string | null;
+				deptName: string;
+				countryCode: string;
+			}
+		> = {};
+		for (const trip of tripsWithPos) {
+			const positions = trip.positions!;
+			const inTurn = positions.filter((p) => Math.abs(p.angle - 90) > TURN_DEG && p.speed * 1.852 > 10);
+			if (inTurn.length === 0) continue;
+			const centerLat = inTurn.reduce((s, p) => s + p.latitude, 0) / inTurn.length;
+			const centerLon = inTurn.reduce((s, p) => s + p.longitude, 0) / inTurn.length;
+			let nearestCity = '';
+			let nearestDept = '';
+			let nearestCountry = 'FR';
+			let nearestDist = 40;
+			for (const ep of uniqueCityEndpoints) {
+				const d = haversineKm(centerLat, centerLon, ep.lat, ep.lon);
+				if (d < nearestDist) {
+					nearestDist = d;
+					nearestCity = ep.city;
+					nearestDept = ep.deptName;
+					nearestCountry = ep.countryCode;
+				}
+			}
+			if (!nearestCity) continue;
+			if (!cityTurnMap[nearestCity])
+				cityTurnMap[nearestCity] = {
+					speeds: [],
+					leans: [],
+					maxKmh: 0,
+					maxKmhIndexId: null,
+					maxLeanDeg: 0,
+					maxLeanIndexId: null,
+					deptName: nearestDept,
+					countryCode: nearestCountry,
+				};
+			const citySpeeds = inTurn.map((p) => p.speed * 1.852);
+			cityTurnMap[nearestCity].speeds.push(...citySpeeds);
+			const cityMaxKmh = Math.max(...citySpeeds);
+			if (cityMaxKmh > cityTurnMap[nearestCity].maxKmh) {
+				cityTurnMap[nearestCity].maxKmh = cityMaxKmh;
+				cityTurnMap[nearestCity].maxKmhIndexId = trip.indexId;
+			}
+			const cityLeans = inTurn.map((p) => Math.abs(p.angle - 90));
+			cityTurnMap[nearestCity].leans.push(...cityLeans);
+			const cityMaxLean = Math.max(...cityLeans);
+			if (cityMaxLean > cityTurnMap[nearestCity].maxLeanDeg) {
+				cityTurnMap[nearestCity].maxLeanDeg = cityMaxLean;
+				cityTurnMap[nearestCity].maxLeanIndexId = trip.indexId;
+			}
+		}
+		const topCities: TurnCityStat[] = Object.entries(cityTurnMap)
+			.map(
+				([
+					cityName,
+					{ speeds, leans, maxKmh, maxKmhIndexId, maxLeanDeg, maxLeanIndexId, deptName, countryCode },
+				]) => ({
+					cityName,
+					deptName,
+					countryCode,
+					avgKmh: Math.round(speeds.reduce((s, v) => s + v, 0) / speeds.length),
+					maxKmh: Math.round(maxKmh),
+					maxKmhTripIndexId: maxKmhIndexId,
+					avgLeanDeg: leans.length > 0 ? Math.round(leans.reduce((s, v) => s + v, 0) / leans.length) : 0,
+					maxLeanDeg: Math.round(maxLeanDeg),
+					maxLeanTripIndexId: maxLeanIndexId,
+					tripCount: speeds.length,
+				}),
+			)
+			.sort((a, b) => b.avgKmh - a.avgKmh)
+			.slice(0, 8);
+
+		// Lean angle distribution from all trips (no positions needed)
+		const leanBuckets = [
+			{ label: '< 15°', min: 0, max: 15 },
+			{ label: '15 – 30°', min: 15, max: 30 },
+			{ label: '30 – 45°', min: 30, max: 45 },
+			{ label: '> 45°', min: 45, max: 90 },
+		];
+		const leanDistribution = leanBuckets.map(({ label, min, max }) => {
+			const count = tripsWithAngle.filter((t) => {
+				const lean = Math.abs(t.maxAngle - 90);
+				return lean >= min && lean < max;
+			}).length;
+			return {
+				label,
+				pct: tripsWithAngle.length > 0 ? Math.round((count / tripsWithAngle.length) * 100) : 0,
+				count,
+			};
+		});
+		const avgLeanAngle =
+			tripsWithAngle.length > 0
+				? Math.round(tripsWithAngle.reduce((s, t) => s + Math.abs(t.maxAngle - 90), 0) / tripsWithAngle.length)
+				: null;
+		const turnStats: TurnStats = {
+			maxLeanAngle,
+			maxLeanTripIndexId: maxLeanTripRaw?.indexId ?? null,
+			sportPct,
+			avgSpeedKmh,
+			maxSpeedKmh,
+			avgPctInTurns,
+			tripsWithPositions: tripsWithPos.length,
+			topDepts,
+			topCities,
+			leanDistribution,
+			avgLeanAngle,
+		};
+
+		// Records
+		const longestTripRaw =
+			this.tripsWithCoords.length > 0
+				? this.tripsWithCoords.reduce((best, t) => (t.distance > best.distance ? t : best))
+				: null;
+		const longestTrip = longestTripRaw
+			? {
+					km: Math.round(longestTripRaw.distance / 1000),
+					dateLabel: fmt.format(new Date(longestTripRaw.startTime.substring(0, 10) + 'T12:00:00')),
+					from: this.extractCity(longestTripRaw.niceStartAddress ?? longestTripRaw.startAddress),
+					to: this.extractCity(longestTripRaw.niceEndAddress ?? longestTripRaw.endAddress),
+					indexId: longestTripRaw.indexId,
+				}
+			: null;
+		const longestDayEntry = Object.entries(kmByDay).sort(([, a], [, b]) => b.km - a.km)[0] ?? null;
+		const longestDay = longestDayEntry
+			? {
+					km: Math.round(longestDayEntry[1].km),
+					dateLabel: fmt.format(new Date(longestDayEntry[0] + 'T12:00:00')),
+					tripCount: longestDayEntry[1].trips,
+				}
+			: null;
+		const bestMonthEntry = Object.entries(kmByMonth).sort(([, a], [, b]) => b.km - a.km)[0] ?? null;
+		const bestMonth = bestMonthEntry
+			? { km: Math.round(bestMonthEntry[1].km), label: fmtMonth.format(new Date(bestMonthEntry[0] + '-15')) }
+			: null;
+		const firstTripRaw =
+			this.tripsWithCoords.length > 0
+				? this.tripsWithCoords.reduce((oldest, t) => (t.startTime < oldest.startTime ? t : oldest))
+				: null;
+		const firstTripDate = firstTripRaw
+			? fmt.format(new Date(firstTripRaw.startTime.substring(0, 10) + 'T12:00:00'))
+			: null;
+		const ridingDays = Object.keys(kmByDay).length;
+		const sortedDays = Object.keys(kmByDay).sort();
+		let maxStreak = sortedDays.length > 0 ? 1 : 0;
+		let currentStreak = 1;
+		let currentStreakStartIdx = 0;
+		let maxStreakStartIdx = 0;
+		let maxStreakEndIdx = 0;
+		for (let i = 1; i < sortedDays.length; i++) {
+			const prev = new Date(sortedDays[i - 1] + 'T12:00:00');
+			const curr = new Date(sortedDays[i] + 'T12:00:00');
+			const diff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+			if (diff === 1) {
+				currentStreak++;
+				if (currentStreak > maxStreak) {
+					maxStreak = currentStreak;
+					maxStreakStartIdx = currentStreakStartIdx;
+					maxStreakEndIdx = i;
+				}
+			} else {
+				currentStreak = 1;
+				currentStreakStartIdx = i;
+			}
+		}
+		const longestStreakFrom =
+			sortedDays.length > 0 ? fmt.format(new Date(sortedDays[maxStreakStartIdx] + 'T12:00:00')) : null;
+		const longestStreakTo =
+			sortedDays.length > 0 ? fmt.format(new Date(sortedDays[maxStreakEndIdx] + 'T12:00:00')) : null;
+		// Plus longue période sans rouler
+		let longestBreak: Records['longestBreak'] = null;
+		for (let i = 1; i < sortedDays.length; i++) {
+			const prev = new Date(sortedDays[i - 1] + 'T12:00:00');
+			const curr = new Date(sortedDays[i] + 'T12:00:00');
+			const gap = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)) - 1;
+			if (gap > 0 && (!longestBreak || gap > longestBreak.days)) {
+				longestBreak = {
+					days: gap,
+					from: fmt.format(new Date(prev.getTime() + 1000 * 60 * 60 * 24)),
+					to: fmt.format(curr),
+				};
+			}
+		}
+		// Stats uniques — non visibles ailleurs dans l'app
+		const totalKm = Math.round(this.tripsWithCoords.reduce((s, t) => s + t.distance, 0) / 1000);
+		const totalTrips = this.tripsWithCoords.length;
+		const avgKmPerTrip = totalTrips > 0 ? Math.round(totalKm / totalTrips) : 0;
+		const totalDurationMs = this.tripsWithCoords.reduce((s, t) => s + t.duration, 0);
+		const totalRidingHours = Math.round(totalDurationMs / (1000 * 60 * 60));
+		const avgTripDurationMin = totalTrips > 0 ? Math.round(totalDurationMs / totalTrips / (1000 * 60)) : 0;
+		const DAY_NAMES = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+		const dayOfWeekCount: Record<number, number> = {};
+		const startHourCount: Record<number, number> = {};
+		const endHourCount: Record<number, number> = {};
+		for (const trip of this.tripsWithCoords) {
+			const d = new Date(trip.startTime);
+			const e = new Date(trip.endTime);
+			dayOfWeekCount[d.getDay()] = (dayOfWeekCount[d.getDay()] ?? 0) + 1;
+			startHourCount[d.getHours()] = (startHourCount[d.getHours()] ?? 0) + 1;
+			endHourCount[e.getHours()] = (endHourCount[e.getHours()] ?? 0) + 1;
+		}
+		const topDaysOfWeek = Object.entries(dayOfWeekCount)
+			.sort(([, a], [, b]) => b - a)
+			.slice(0, 3)
+			.map(([dow]) => DAY_NAMES[Number(dow)]);
+		const mostCommonHour = (hourCount: Record<number, number>): number | null =>
+			Object.entries(hourCount).sort(([, a], [, b]) => b - a)[0]?.[0] != null
+				? Number(Object.entries(hourCount).sort(([, a], [, b]) => b - a)[0][0])
+				: null;
+		const departureHour = mostCommonHour(startHourCount);
+		const arrivalHour = mostCommonHour(endHourCount);
+		const pauseHour =
+			departureHour !== null && arrivalHour !== null ? Math.round((departureHour + arrivalHour) / 2) : null;
+		const records: Records = {
+			longestTrip,
+			longestDay,
+			bestMonth,
+			firstTripDate,
+			totalKm,
+			totalTrips,
+			ridingDays,
+			longestStreak: maxStreak,
+			longestStreakFrom,
+			longestStreakTo,
+			longestBreak,
+			avgKmPerTrip,
+			totalRidingHours,
+			avgTripDurationMin,
+			topDaysOfWeek,
+			departureHour,
+			pauseHour,
+			arrivalHour,
+		};
+
+		// PauseStats — basé sur les sessions (boucles) détectées par buildSessions
+		// Pauses = intra-trajet (depuis positions GPS) + inter-trajets (gap entre trajets d'une même session)
+		const PAUSE_MS = 5 * 60 * 1000;
+		const MERGE_KM = 0.2;
+		const KM_RANGES: [number, number][] = [
+			[0, 50],
+			[50, 100],
+			[100, 150],
+			[150, 200],
+			[200, Infinity],
+		];
+		const kmRangeLabel = (min: number, max: number) => (max === Infinity ? `> ${min} km` : `${min} – ${max} km`);
+		const rangeData: { pauseCounts: number[]; durations: number[] }[] = KM_RANGES.map(() => ({
+			pauseCounts: [],
+			durations: [],
+		}));
+		let totalPauseCount = 0,
+			totalPauseDuration = 0,
+			totalSessionCount = 0;
+		let maxPauseDuration = 0,
+			maxPauseDateLabel: string | null = null,
+			maxPauseTripIndexId: string | null = null;
+		let totalKmBeforeFirst = 0,
+			kmBeforeFirstCount = 0;
+		let longestSessionKm = 0,
+			longestSessionTripIndexId: string | null = null;
+
+		const sessions = buildSessions(this.tripsWithCoords);
+		for (const session of sessions) {
+			const sessionKm = session.reduce((s, t) => s + t.distance / 1000, 0);
+			const sessionPauses: { durationMin: number; afterKm: number; tripIndexId: string; date: string }[] = [];
+			let cumKm = 0;
+
+			for (let si = 0; si < session.length; si++) {
+				const trip = session[si];
+
+				// Pauses intra-trajet (depuis les positions GPS si disponibles)
+				if (trip.positions && trip.positions.length > 0) {
+					const positions = trip.positions;
+					const raw: { durationMin: number; lat: number; lon: number; startKm: number }[] = [];
+					let tripCumKm = 0;
+					for (let i = 1; i < positions.length; i++) {
+						const dt =
+							new Date(positions[i].fixtime).getTime() - new Date(positions[i - 1].fixtime).getTime();
+						const segKm = haversineKm(
+							positions[i - 1].latitude,
+							positions[i - 1].longitude,
+							positions[i].latitude,
+							positions[i].longitude,
+						);
+						tripCumKm += segKm;
+						if (dt > PAUSE_MS) {
+							raw.push({
+								durationMin: Math.round(dt / 60000),
+								lat: positions[i - 1].latitude,
+								lon: positions[i - 1].longitude,
+								startKm: tripCumKm,
+							});
+						}
+					}
+					// Fusionner les pauses proches (< 200m)
+					const merged: typeof raw = [];
+					for (const z of raw) {
+						const nearby = merged.find((m) => haversineKm(m.lat, m.lon, z.lat, z.lon) < MERGE_KM);
+						if (nearby) nearby.durationMin += z.durationMin;
+						else merged.push({ ...z });
+					}
+					for (const p of merged.filter((z) => cumKm + z.startKm >= 5)) {
+						sessionPauses.push({
+							durationMin: p.durationMin,
+							afterKm: cumKm + p.startKm,
+							tripIndexId: trip.indexId,
+							date: trip.startTime.substring(0, 10),
+						});
+					}
+				}
+
+				cumKm += trip.distance / 1000;
+
+				// Pause inter-trajet : 3+ trajets seulement, et gap >= 10 min (évite les micro-coupures GPS)
+				if (session.length >= 3 && si < session.length - 1) {
+					const next = session[si + 1];
+					const gapMs = new Date(next.startTime).getTime() - new Date(trip.endTime).getTime();
+					const gapMin = Math.round(gapMs / 60000);
+					if (gapMin >= 10) {
+						sessionPauses.push({
+							durationMin: gapMin,
+							afterKm: cumKm,
+							tripIndexId: trip.indexId,
+							date: trip.startTime.substring(0, 10),
+						});
+					}
+				}
+			}
+
+			// Agréger les stats de la session
+			totalSessionCount++;
+			totalPauseCount += sessionPauses.length;
+			for (const p of sessionPauses) {
+				totalPauseDuration += p.durationMin;
+				if (p.durationMin > maxPauseDuration) {
+					maxPauseDuration = p.durationMin;
+					maxPauseDateLabel = fmt.format(new Date(p.date + 'T12:00:00'));
+					maxPauseTripIndexId = p.tripIndexId;
+				}
+			}
+			const firstPause = sessionPauses[0];
+			if (firstPause) {
+				totalKmBeforeFirst += firstPause.afterKm;
+				kmBeforeFirstCount++;
+			}
+			if (sessionPauses.length === 0 && sessionKm > longestSessionKm) {
+				longestSessionKm = sessionKm;
+				longestSessionTripIndexId = session[0].indexId;
+			}
+			const rangeIdx = KM_RANGES.findIndex(([min, max]) => sessionKm >= min && sessionKm < max);
+			if (rangeIdx >= 0) {
+				rangeData[rangeIdx].pauseCounts.push(sessionPauses.length);
+				if (sessionPauses.length > 0)
+					rangeData[rangeIdx].durations.push(...sessionPauses.map((p) => p.durationMin));
+			}
+		}
+
+		const pauseStats: PauseStats = {
+			tripsWithPositions: tripsWithPos.length,
+			avgPausesPerTrip:
+				totalSessionCount > 0 ? Math.round((totalPauseCount / totalSessionCount) * 10) / 10 : null,
+			avgPauseDurationMin: totalPauseCount > 0 ? Math.round(totalPauseDuration / totalPauseCount) : null,
+			maxPauseDurationMin: maxPauseDuration > 0 ? maxPauseDuration : null,
+			maxPauseDateLabel,
+			maxPauseTripIndexId,
+			avgKmBeforeFirstPause: kmBeforeFirstCount > 0 ? Math.round(totalKmBeforeFirst / kmBeforeFirstCount) : null,
+			longestSessionKm: longestSessionKm > 0 ? Math.round(longestSessionKm) : null,
+			longestSessionTripIndexId,
+			byKmRange: KM_RANGES.map(([min, max], i) => {
+				const { pauseCounts, durations } = rangeData[i];
+				return {
+					label: kmRangeLabel(min, max),
+					avgPauses:
+						pauseCounts.length > 0
+							? Math.round((pauseCounts.reduce((s, v) => s + v, 0) / pauseCounts.length) * 10) / 10
+							: 0,
+					minPauses: pauseCounts.length > 0 ? Math.min(...pauseCounts) : 0,
+					maxPauses: pauseCounts.length > 0 ? Math.max(...pauseCounts) : 0,
+					avgDurationMin:
+						durations.length > 0 ? Math.round(durations.reduce((s, v) => s + v, 0) / durations.length) : 0,
+					minDurationMin: durations.length > 0 ? Math.min(...durations) : 0,
+					maxDurationMin: durations.length > 0 ? Math.max(...durations) : 0,
+					tripCount: pauseCounts.length,
+				};
+			}).filter((r) => r.tripCount > 0),
+		};
+
+		// FuelStats
+		const TANK_L = 15;
+		let totalLiters = 0;
+		// Initialiser les 12 derniers mois (même si 0 trajet)
+		const fuelByMonth: Record<string, { liters: number }> = {};
+		const nowDate = new Date();
+		for (let i = 11; i >= 0; i--) {
+			const d = new Date(nowDate.getFullYear(), nowDate.getMonth() - i, 1);
+			const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+			fuelByMonth[key] = { liters: 0 };
+		}
+		for (const trip of this.tripsWithCoords) {
+			const liters = estimateLiters(trip.distance, trip.averageSpeed, trip.positions);
+			totalLiters += liters;
+			const month = trip.startTime.substring(0, 7);
+			if (fuelByMonth[month] !== undefined) fuelByMonth[month].liters += liters;
+		}
+		const prices = this.fuelPrices();
+		const totalKmAll = this.tripsWithCoords.reduce((s, t) => s + t.distance / 1000, 0);
+		let totalCost: number | null = null;
+		const fuelByMonthStats: MonthlyFuelCost[] = Object.entries(fuelByMonth)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.filter(([, { liters }]) => liters > 0)
+			.map(([key, { liters }]) => {
+				const pricePerL = prices[key] ?? null;
+				const cost = pricePerL !== null ? liters * pricePerL : null;
+				if (cost !== null) totalCost = (totalCost ?? 0) + cost;
+				return {
+					key,
+					label: fmtMonth.format(new Date(key + '-15')),
+					pricePerL: pricePerL !== null ? Math.round(pricePerL * 1000) / 1000 : null,
+					litersConsumed: Math.round(liters * 10) / 10,
+					cost: cost !== null ? Math.round(cost) : null,
+					fillUps: estimateFillUps(liters, TANK_L),
+				};
+			});
+		const fuelStats: FuelStats = {
+			fuelType: this.fuelType,
+			tankSizeL: TANK_L,
+			totalLiters: Math.round(totalLiters * 10) / 10,
+			totalCost: totalCost !== null ? Math.round(totalCost) : null,
+			avgConsumptionL100: totalKmAll > 0 ? Math.round((totalLiters / totalKmAll) * 1000) / 10 : 0,
+			totalFillUps: fuelByMonthStats.reduce((s, m) => s + m.fillUps, 0),
+			co2KgTotal: estimateCO2Kg(totalLiters),
+			costPerKm: totalCost !== null ? fuelCostPerKm(totalCost, totalKmAll) : null,
+			byMonth: fuelByMonthStats,
+		};
+
+		return { homeCity, depts, distanceStats, speedStats, turnStats, pauseStats, fuelStats, records };
+	}
+
+	private tripSeason(year: number, month: number): string {
+		if (month >= 3 && month <= 5) return `Printemps ${year}`;
+		if (month >= 6 && month <= 8) return `Été ${year}`;
+		if (month >= 9 && month <= 11) return `Automne ${year}`;
+		return `Hiver ${month === 12 ? year : year - 1}`;
+	}
+
+	private seasonSortKey(label: string): number {
+		const m = label.match(/(\d{4})$/);
+		if (!m) return 0;
+		const year = parseInt(m[1]);
+		if (label.startsWith('Printemps')) return year * 10 + 1;
+		if (label.startsWith('Été')) return year * 10 + 2;
+		if (label.startsWith('Automne')) return year * 10 + 3;
+		return year * 10 + 4;
+	}
+
+	private countryForCoords(lat: number, lon: number): string {
+		// Trier par surface de bbox (plus petit d'abord) pour que Monaco passe avant France/Italie
+		const sorted = [...NEIGHBORING_COUNTRIES].sort(
+			(a, b) => (a.maxLat - a.minLat) * (a.maxLon - a.minLon) - (b.maxLat - b.minLat) * (b.maxLon - b.minLon),
+		);
+		for (const c of sorted) {
+			if (lat >= c.minLat && lat <= c.maxLat && lon >= c.minLon && lon <= c.maxLon) return c.code;
+		}
+		return 'FR';
 	}
 
 	private findDeptCodeForPoint(lng: number, lat: number): string | null {
@@ -1123,6 +1848,7 @@ export class Map {
 		this.departments = departments;
 		this.allTripsWithCoords = tripsWithCoords as TripWithCoords[];
 		this.tripsWithCoords = this.allTripsWithCoords;
+		this.streak.set(this.computeStreak());
 		this.logger.log('Map', '[applyDemoData] trips set');
 		this.updateAvailablePresets();
 		this.logger.log('Map', '[applyDemoData] presets updated');
@@ -1478,6 +2204,7 @@ export class Map {
 						}))
 						.filter((t) => t.coords.length > 0) as TripWithCoords[];
 					this.tripsWithCoords = this.allTripsWithCoords;
+					this.streak.set(this.computeStreak());
 					this.updateVisitedNeighboringCountries();
 					this.visitedSeasons.set(
 						SEASONS.filter((s) =>
@@ -3508,7 +4235,7 @@ export class Map {
 			this.hideStops();
 			return;
 		}
-		this.stopPointsCache = null; // force recalcul avec adresses formatées
+		this.stopPointsCache = null;
 		if (this.turnsMode()) {
 			this.turnsMode.set(false);
 			this.hideTurns();
@@ -3520,6 +4247,10 @@ export class Map {
 		this.stopsMode.set(true);
 		this.showStops();
 		if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
+		// Charger les positions si pas encore fait
+		if (this.allTripsWithCoords.some((t) => !t.positions?.length)) {
+			this.syncTripAltitudes().subscribe({ error: () => {} });
+		}
 	}
 
 	private showStops(): void {
@@ -3979,6 +4710,73 @@ export class Map {
 		this.fitToVisited([trip.coords], 14);
 	}
 
+	onFilterDateFromPanel(date: string): void {
+		this.selectFilter('custom');
+		this.updateCustomDate('from', date);
+		this.updateCustomDate('to', date);
+	}
+
+	onSelectTripById(indexId: string): void {
+		const trip = this.allTripsWithCoords.find((t) => t.indexId === indexId);
+		if (!trip) return;
+		this.closeStatsModal();
+		this.showTripLine(trip);
+		this.fitToVisited([trip.coords], 14);
+	}
+
+	onFuelTypeChange(type: string): void {
+		this.fuelType = type;
+		this.loadFuelPrices();
+	}
+
+	async loadFuelPrices(): Promise<void> {
+		const now = new Date();
+		const currentMonth = now.toISOString().substring(0, 7);
+		const months: string[] = [];
+		for (let i = 11; i >= 0; i--) {
+			const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+			months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+		}
+		// Charger tous les mois passés directement, le mois en cours via fallback
+		const pastMonths = months.filter((m) => m < currentMonth);
+		const prices = await this.fuel.getMonthlyPrices(this.fuelType, pastMonths);
+		// Pour le mois en cours ou les mois sans données : utiliser le plus proche disponible
+		const allAvailable = Object.entries(prices)
+			.filter(([, v]) => v !== null)
+			.map(([k]) => k);
+		for (const m of months) {
+			if (prices[m] === null || prices[m] === undefined) {
+				prices[m] = await this.fuel.getPriceOrNearest(this.fuelType, m, allAvailable);
+			}
+		}
+		this.fuelPrices.set(prices);
+		this.statsModalData.set(this.computeStatsData());
+	}
+
+	onStatsApplyFilter(action: FilterAction): void {
+		if (action.type === 'reset') {
+			this.selectFilter('all');
+			this.statsModalData.set(this.computeStatsData());
+			return;
+		}
+		this.closeStatsModal();
+		if (action.type === 'day') {
+			this.selectFilter('custom');
+			this.updateCustomDate('from', action.date);
+			this.updateCustomDate('to', action.date);
+		} else if (action.type === 'month') {
+			const [year, mon] = action.month.split('-').map(Number);
+			const lastDay = new Date(year, mon, 0).getDate();
+			const pad = (n: number) => String(n).padStart(2, '0');
+			this.selectFilter('custom');
+			this.updateCustomDate('from', `${action.month}-01`);
+			this.updateCustomDate('to', `${action.month}-${pad(lastDay)}`);
+		} else if (action.type === 'season') {
+			const season = SEASONS.find((s) => s.name === action.name);
+			if (season) this.selectSeason(season as Season);
+		}
+	}
+
 	onShowStatPoints(pts: [number, number][]): void {
 		if (!this.map?.getSource('stat-points')) return;
 		(this.map.getSource('stat-points') as maplibregl.GeoJSONSource).setData({
@@ -4435,6 +5233,7 @@ export class Map {
 			setTimeout(() => {
 				this.loading.set(false);
 				this.loadingHiding.set(false);
+				if (this.streak() >= 3) setTimeout(() => this.streakVisible.set(true), 1400);
 				if (this.newCellsRecapData() && !this.recapDismissed()) {
 					setTimeout(() => this.showNewCellsRecap.set(true), 600);
 				}

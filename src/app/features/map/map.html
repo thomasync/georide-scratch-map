@@ -203,123 +203,108 @@
 @if (!loading() && !error()) {
 	<!-- Feature: bottom UI (filter bar + stats panel) -->
 	<div class="bottom-ui" [class.bottom-ui--hidden]="showTripPanel()">
-		<!-- Stats panel -->
-		<div class="stats-panel">
-			@if (focusStats(); as fs) {
-				@if (fs.name) {
-					<div class="stat">
-						<span class="stat-value stat-dept-name">{{ fs.name }}</span>
-						<span class="stat-label">{{ fs.countryName }}</span>
-					</div>
-					<span class="stat-sep">·</span>
-				}
-				<div class="stat">
-					<span class="stat-value">{{ fs.trips }}</span>
-					<span class="stat-label">{{ fs.trips === 1 ? 'trajet' : 'trajets' }}</span>
-				</div>
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ focusKmFormatted() }}</span>
-					<span class="stat-label">km</span>
-				</div>
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ fs.hex }}</span>
-					<span class="stat-label">hex.</span>
-				</div>
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ fs.pct }}%</span>
-					<span class="stat-label">exploré</span>
-				</div>
-			} @else {
-				<div class="stat">
-					<span class="stat-value">{{ tripCount() }}</span>
-					<span class="stat-label">{{ tripCount() === 1 ? 'trajet' : 'trajets' }}</span>
-				</div>
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ totalKmFormatted() }}</span>
-					<span class="stat-label">km</span>
-				</div>
-				@if (countryCountStat() >= 2) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ countryCountStat() }}</span>
-						<span class="stat-label">pays</span>
-					</div>
-				}
-				@if (cityCountStat() > 0) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ cityCountStat() }}</span>
-						<span class="stat-label">{{ cityCountStat() === 1 ? 'ville' : 'villes' }}</span>
-					</div>
-				}
-				@if (fullRegionCount() > 0) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ fullRegionCount() }}</span>
-						<span class="stat-label">{{ fullRegionCount() === 1 ? 'région' : 'régions' }}</span>
-					</div>
-				}
-				@if (streak() >= 3) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value"
-							><img src="/fire.png" class="stat-flame" alt="🔥" />{{ streak() }}</span
-						>
-						<span class="stat-label">jours</span>
-					</div>
-				}
-				@if (colsMode() && hexHoverAlt() !== null) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">~{{ hexHoverAlt() }}</span>
-						<span class="stat-label">m alt.</span>
-					</div>
-				}
-				@if (turnsMode() && hexHoverTurns() !== null) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ hexHoverTurns() }}</span>
-						<span class="stat-label">virage{{ hexHoverTurns()! > 1 ? 's' : '' }}</span>
-					</div>
-				}
-				@if (speedMode() && hexHoverSpeedAvg() !== null) {
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ hexHoverSpeedAvg() }}</span>
-						<span class="stat-label">km/h moy.</span>
-					</div>
-					<span class="stat-sep">·</span>
-					<div class="stat">
-						<span class="stat-value">{{ hexHoverSpeedMax() }}</span>
-						<span class="stat-label">km/h max</span>
-					</div>
-				}
-			}
-			@if (isDevMode) {
-				@if (allTripsMaxSpeedKmh() > 0) {
-					<span class="stat-sep">·</span>
-					<div class="stat stat--clickable" data-stat-action="maxSpeed">
-						<span class="stat-value">{{ allTripsMaxSpeedKmh() }}</span>
-						<span class="stat-label">km/h max</span>
-					</div>
-				}
-				@if (allTripsMaxDistanceKm() > 0) {
-					<span class="stat-sep">·</span>
-					<div class="stat stat--clickable" data-stat-action="maxDistance">
-						<span class="stat-value">{{ allTripsMaxDistanceKm() }}</span>
-						<span class="stat-label">km max</span>
-					</div>
-				}
-				<span class="stat-sep">·</span>
-				<div class="stat">
-					<span class="stat-value">{{ zoom() }}</span>
-					<span class="stat-label">zoom</span>
+		<!-- Stats row : streak badge + stats panel côte à côte -->
+		<div class="stats-row">
+			@if (streak() >= 3) {
+				<div class="streak-badge" [class.streak-badge--visible]="streakVisible()">
+					<img src="/fire.png" class="streak-badge-flame" alt="🔥" />
+					<span class="streak-badge-count">{{ streak() }}</span>
 				</div>
 			}
+			<div class="stats-panel">
+				@if (focusStats(); as fs) {
+					@if (fs.name) {
+						<div class="stat">
+							<span class="stat-value stat-dept-name">{{ fs.name }}</span>
+							<span class="stat-label">{{ fs.countryName }}</span>
+						</div>
+						<span class="stat-sep">·</span>
+					}
+					<div class="stat">
+						<span class="stat-value">{{ fs.trips }}</span>
+						<span class="stat-label">{{ fs.trips === 1 ? 'trajet' : 'trajets' }}</span>
+					</div>
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ focusKmFormatted() }}</span>
+						<span class="stat-label">km</span>
+					</div>
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ fs.hex }}</span>
+						<span class="stat-label">hex.</span>
+					</div>
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ fs.pct }}%</span>
+						<span class="stat-label">exploré</span>
+					</div>
+				} @else {
+					<div class="stat">
+						<span class="stat-value">{{ tripCount() }}</span>
+						<span class="stat-label">{{ tripCount() === 1 ? 'trajet' : 'trajets' }}</span>
+					</div>
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ totalKmFormatted() }}</span>
+						<span class="stat-label">km</span>
+					</div>
+					@if (countryCountStat() >= 2) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ countryCountStat() }}</span>
+							<span class="stat-label">pays</span>
+						</div>
+					}
+					@if (cityCountStat() > 0) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ cityCountStat() }}</span>
+							<span class="stat-label">{{ cityCountStat() === 1 ? 'ville' : 'villes' }}</span>
+						</div>
+					}
+					@if (fullRegionCount() > 0) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ fullRegionCount() }}</span>
+							<span class="stat-label">{{ fullRegionCount() === 1 ? 'région' : 'régions' }}</span>
+						</div>
+					}
+					@if (colsMode() && hexHoverAlt() !== null) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">~{{ hexHoverAlt() }}</span>
+							<span class="stat-label">m alt.</span>
+						</div>
+					}
+					@if (turnsMode() && hexHoverTurns() !== null) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ hexHoverTurns() }}</span>
+							<span class="stat-label">virage{{ hexHoverTurns()! > 1 ? 's' : '' }}</span>
+						</div>
+					}
+					@if (speedMode() && hexHoverSpeedAvg() !== null) {
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ hexHoverSpeedAvg() }}</span>
+							<span class="stat-label">km/h moy.</span>
+						</div>
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{ hexHoverSpeedMax() }}</span>
+							<span class="stat-label">km/h max</span>
+						</div>
+					}
+				}
+				@if (isDevMode) {
+					<span class="stat-sep">·</span>
+					<div class="stat">
+						<span class="stat-value">{{ zoom() }}</span>
+						<span class="stat-label">zoom</span>
+					</div>
+				}
+			</div>
 		</div>
 
 		<!-- Filter bar (hidden when trip panel is open) -->
@@ -410,7 +395,14 @@
 }
 
 @if (showStatsModal()) {
-	<app-stats-modal [data]="statsModalData()" (close)="closeStatsModal()" />
+	<app-stats-modal
+		[data]="statsModalData()"
+		[isFiltered]="dateFilter() !== 'all' || seasonFilter() !== null"
+		(close)="closeStatsModal()"
+		(selectTrip)="onSelectTripById($event)"
+		(applyFilter)="onStatsApplyFilter($event)"
+		(fuelTypeChange)="onFuelTypeChange($event)"
+	/>
 }
 
 @if (showTripPanel()) {
@@ -432,6 +424,7 @@
 		(fitTripEvent)="onFitTrip()"
 		(selectTripEvent)="onSelectTrip($event)"
 		(showStatPoints)="onShowStatPoints($event)"
+		(filterDate)="onFilterDateFromPanel($event)"
 	/>
 }
 

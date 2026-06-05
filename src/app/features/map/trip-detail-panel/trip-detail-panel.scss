@@ -243,6 +243,32 @@
 	color: rgba(255, 255, 255, 0.45);
 	margin-top: 0.06rem;
 	text-transform: capitalize;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	flex-wrap: wrap;
+}
+
+.tdp-date-time {
+	white-space: nowrap;
+}
+
+.tdp-date-btn {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: inherit;
+	color: rgba(255, 255, 255, 0.45);
+	text-transform: capitalize;
+	padding: 0;
+
+	@media (hover: hover) {
+		&:hover {
+			color: rgba(255, 255, 255, 0.75);
+			text-decoration: underline;
+		}
+	}
 }
 
 .tdp-fullday-btn {

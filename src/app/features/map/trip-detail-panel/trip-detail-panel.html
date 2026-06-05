@@ -75,7 +75,12 @@
 		<div class="tdp-header">
 			<div class="tdp-header-left">
 				<div class="tdp-route">{{ startLabel }} → {{ endLabel }}</div>
-				<div class="tdp-date">{{ dateLabel }} · {{ startTimeLabel }} → {{ endTimeLabel }}</div>
+				<div class="tdp-date">
+					<button class="tdp-date-btn" (click)="filterDate.emit(trip!.startTime.substring(0, 10))">
+						{{ dateLabel }}
+					</button>
+					<span class="tdp-date-time">· {{ startTimeLabel }} → {{ endTimeLabel }}</span>
+				</div>
 			</div>
 			@if (pauseNavVisible) {
 				<div class="tdp-pause-nav">
@@ -309,6 +314,18 @@
 						(click)="onPausesClick()"
 						><b>{{ totalPauseDurationStr }}</b> arrêt</span
 					>
+				}
+				@if (estimatedLiters !== null) {
+					<span class="tdp-stat-sep">·</span>
+					<span class="tdp-stat-item"
+						><b>{{ estimatedLiters }}</b> L</span
+					>
+					@if (estimatedCost !== null) {
+						<span class="tdp-stat-sep">·</span>
+						<span class="tdp-stat-item"
+							><b>{{ estimatedCost }}</b> €</span
+						>
+					}
 				}
 			}
 
