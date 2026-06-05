@@ -569,26 +569,29 @@
 
 					@if (data.pauseStats.byKmRange.length > 0) {
 						<div class="section-title">Par plage de distance</div>
-						<div class="list">
+						<div class="speed-list">
 							@for (range of data.pauseStats.byKmRange; track range.label) {
-								<div class="stat-row">
-									<div class="stat-row-top">
-										<span class="row-name">{{ range.label }}</span>
-										<span class="row-pct"
-											>{{ range.avgPauses }} pause{{ range.avgPauses !== 1 ? 's' : '' }}</span
-										>
+								<div class="turn-item">
+									<div class="speed-item-left">
+										<span class="speed-item-max" style="font-size: 1rem">{{
+											range.avgPauses
+										}}</span>
+										<span class="speed-item-unit">pause{{ range.avgPauses !== 1 ? 's' : '' }}</span>
 									</div>
-									<span class="row-muted"
-										>min {{ range.minPauses }} · max {{ range.maxPauses }} ·
-										{{ range.tripCount }} trajet{{ range.tripCount > 1 ? 's' : '' }}</span
-									>
-									@if (range.avgDurationMin > 0) {
-										<span class="row-muted"
-											>durée {{ formatDuration(range.minDurationMin) }} · moy.
-											{{ formatDuration(range.avgDurationMin) }} ·
-											{{ formatDuration(range.maxDurationMin) }}</span
+									<div class="speed-item-right">
+										<span class="speed-item-route">{{ range.label }}</span>
+										<span class="speed-item-meta"
+											>min {{ range.minPauses }} · max {{ range.maxPauses }} ·
+											{{ range.tripCount }} trajet{{ range.tripCount > 1 ? 's' : '' }}</span
 										>
-									}
+										@if (range.avgDurationMin > 0) {
+											<span class="speed-item-meta"
+												>durée {{ formatDuration(range.minDurationMin) }} · moy.
+												{{ formatDuration(range.avgDurationMin) }} ·
+												{{ formatDuration(range.maxDurationMin) }}</span
+											>
+										}
+									</div>
 								</div>
 							}
 						</div>
@@ -808,7 +811,7 @@
 						}
 						@if (data.records.longestBreak) {
 							<div class="record-card">
-								<span class="record-label">Plus longue pause</span>
+								<span class="record-label">Longue absence</span>
 								<span class="record-value"
 									>{{ data.records.longestBreak.days }}
 									<span class="record-value-sub">jours</span></span

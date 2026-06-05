@@ -21,6 +21,8 @@ export type FilterAction =
 	| { type: 'day'; date: string }
 	| { type: 'month'; month: string }
 	| { type: 'season'; name: string }
+	| { type: 'seasonYear'; name: string; year: number }
+	| { type: 'dateRange'; from: string; to: string }
 	| { type: 'reset' };
 
 export interface DayDistance {
@@ -289,8 +291,15 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	filterSeason(label: string): void {
-		const name = label.split(' ')[0];
-		this.applyFilter.emit({ type: 'season', name });
+		const [name, yearStr] = label.split(' ');
+		const year = yearStr ? parseInt(yearStr) : null;
+		if (!year) {
+			// Pas d'année → filtre saison récurrente (même comportement que le menu)
+			this.applyFilter.emit({ type: 'season', name });
+			return;
+		}
+		// Avec année → filtre saison récurrente + stocker l'année pour l'affichage du chip
+		this.applyFilter.emit({ type: 'seasonYear', name, year });
 	}
 
 	setDuration(event: Event): void {

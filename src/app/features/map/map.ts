@@ -227,6 +227,7 @@ export class Map {
 	showViewMenu = signal(false);
 	visitedNeighboringCountries = signal<NeighboringCountry[]>([]);
 	seasonFilter = signal<Season | null>(null);
+	seasonYear = signal<number | null>(null);
 	visitedSeasons = signal<Season[]>([]);
 	private viewMenuHideTimer: ReturnType<typeof setTimeout> | null = null;
 	showStatsModal = signal(false);
@@ -273,15 +274,18 @@ export class Map {
 
 	totalKmFormatted = computed(() => this.formatKm(this.totalKm()));
 
-	selectSeason(season: Season): void {
+	selectSeason(season: Season, year?: number): void {
 		const current = this.seasonFilter();
-		this.seasonFilter.set(current?.name === season.name ? null : season);
+		const next = current?.name === season.name && this.seasonYear() === (year ?? null) ? null : season;
+		this.seasonFilter.set(next);
+		this.seasonYear.set(next ? (year ?? null) : null);
 		this.dateFilter.set('all');
 		this.applyDateFilter();
 	}
 
 	selectFilter(filter: DateFilterPreset): void {
 		this.seasonFilter.set(null);
+		this.seasonYear.set(null);
 		this.dateFilter.set(filter);
 		if (filter === 'custom') {
 			const yyyy = new Date().getFullYear();
@@ -4760,7 +4764,11 @@ export class Map {
 			return;
 		}
 		this.closeStatsModal();
-		if (action.type === 'day') {
+		if (action.type === 'dateRange') {
+			this.selectFilter('custom');
+			this.updateCustomDate('from', action.from);
+			this.updateCustomDate('to', action.to);
+		} else if (action.type === 'day') {
 			this.selectFilter('custom');
 			this.updateCustomDate('from', action.date);
 			this.updateCustomDate('to', action.date);
@@ -4774,6 +4782,9 @@ export class Map {
 		} else if (action.type === 'season') {
 			const season = SEASONS.find((s) => s.name === action.name);
 			if (season) this.selectSeason(season as Season);
+		} else if (action.type === 'seasonYear') {
+			const season = SEASONS.find((s) => s.name === action.name);
+			if (season) this.selectSeason(season as Season, action.year);
 		}
 	}
 

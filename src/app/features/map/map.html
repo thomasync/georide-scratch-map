@@ -310,8 +310,8 @@
 		<!-- Filter bar (hidden when trip panel is open) -->
 		<div class="filter-bar">
 			@if (seasonFilter(); as season) {
-				<button class="filter-chip active" (click)="selectSeason(season)">
-					{{ season.emoji }} {{ season.name }}
+				<button class="filter-chip active" (click)="selectSeason(season, seasonYear() ?? undefined)">
+					{{ season.emoji }} {{ season.name }}{{ seasonYear() ? ' ' + seasonYear() : '' }}
 				</button>
 			}
 			@if (dateFilter() === 'custom') {
