@@ -174,6 +174,7 @@ export class Map {
 	hexagonCount = signal(0);
 	streak = signal(0);
 	streakVisible = signal(false);
+	streakExpiringToday = signal(false);
 	fullRegionCount = signal(0);
 	countryCountStat = signal(1);
 	cityCountStat = signal(0);
@@ -365,12 +366,15 @@ export class Map {
 		const days = new Set(this.allTripsWithCoords.map((t) => t.startTime.substring(0, 10)));
 		let count = 0;
 		const today = new Date();
+		const todayStr = today.toISOString().substring(0, 10);
+		const hasRiddenToday = days.has(todayStr);
 		for (let i = 0; i < 366; i++) {
 			const d = new Date(today);
 			d.setDate(d.getDate() - i);
 			if (days.has(d.toISOString().substring(0, 10))) count++;
 			else if (i > 0) break;
 		}
+		this.streakExpiringToday.set(!hasRiddenToday && count > 0 && today.getHours() >= 17);
 		this.streakVisible.set(false);
 		return count;
 	}

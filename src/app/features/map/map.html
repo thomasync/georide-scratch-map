@@ -276,7 +276,11 @@
 		<!-- Stats row : streak badge + stats panel côte à côte -->
 		<div class="stats-row">
 			@if (streak() >= 3) {
-				<div class="streak-badge" [class.streak-badge--visible]="streakVisible()">
+				<div
+					class="streak-badge"
+					[class.streak-badge--visible]="streakVisible()"
+					[class.streak-badge--expiring]="streakExpiringToday()"
+				>
 					<img src="/fire.png" class="streak-badge-flame" alt="🔥" />
 					<span class="streak-badge-count">{{ streak() }}</span>
 				</div>
