@@ -9,6 +9,7 @@ export interface ShareDeptPayload {
 export interface ShareHexPayload {
 	res: 6 | 7;
 	cells: string[];
+	compact?: true;
 }
 
 export interface ShareStats {

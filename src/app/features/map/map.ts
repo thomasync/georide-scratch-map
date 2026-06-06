@@ -25,7 +25,15 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DatabaseService, StoredTrip, TripWithCoords } from '../../core/services/database';
 export type { TripWithCoords };
-import { cellToBoundary, cellToLatLng, cellToParent, getResolution, latLngToCell } from 'h3-js';
+import {
+	cellToBoundary,
+	cellToLatLng,
+	cellToParent,
+	compactCells,
+	getResolution,
+	latLngToCell,
+	uncompactCells,
+} from 'h3-js';
 import { GeoRidePosition } from '../../core/services/georide-api';
 import { ANDORRA_FEATURE } from '../../core/data/andorra';
 import { LUXEMBOURG_FEATURES } from '../../core/data/luxembourg';
@@ -57,7 +65,7 @@ import {
 } from '../../core/utils/fuel-consumption';
 import { buildSessions } from '../../core/utils/trip-session';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
-import { ShareService, ShareStats } from '../../core/services/share';
+import { ShareHexPayload, ShareService, ShareStats } from '../../core/services/share';
 import { WrappedCardData } from '../../core/services/screenshot';
 
 type Mode = 'hex' | 'dept' | 'polyline';
@@ -1093,33 +1101,34 @@ export class Map {
 			return;
 		}
 
-		// Étape 1 : toutes les cellules
-		const allPayload = this.share.buildHexPayload(h3data.counts, HEX_SHARE_RES);
+		const allCells = Object.keys(h3data.counts);
 		const stats = this.buildShareStats();
+
+		// Étape 1 : R7 bruts (meilleure précision)
+		const allPayload = this.share.buildHexPayload(h3data.counts, HEX_SHARE_RES);
 		const allData = { v: 1 as const, mode: 'hex' as const, hex: allPayload, stats, ts };
 		const len1 = await this.share.encodedLength(allData);
-		if (len1 <= 1800) {
+		if (len1 <= 6000) {
 			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(allData)}`);
 			this.shareStep.set(null);
 			this.shareLoading.set(false);
 			return;
 		}
 
-		// Étape 2 : filtre viewport
-		const bounds = this.map.getBounds();
-		const filteredCounts = this.share.filterCellsByBounds(h3data.counts, bounds);
-		const vpPayload = this.share.buildHexPayload(filteredCounts, HEX_SHARE_RES);
-		const vpData = { v: 1 as const, mode: 'hex' as const, hex: vpPayload, stats, ts };
-		const len2 = await this.share.encodedLength(vpData);
-		if (len2 <= 1800) {
-			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(vpData)}`);
-			this.shareWarning.set('Seuls les hexagones visibles sont partagés');
+		// Étape 2 : compactCells (fallback si R7 bruts trop volumineux)
+		const compacted = compactCells(allCells);
+		const compactPayload: ShareHexPayload = { res: HEX_SHARE_RES, cells: compacted, compact: true };
+		const compactData = { v: 1 as const, mode: 'hex' as const, hex: compactPayload, stats, ts };
+		const len2 = await this.share.encodedLength(compactData);
+		if (len2 <= 6000) {
+			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(compactData)}`);
+			this.shareWarning.set('Couverture légèrement simplifiée pour tenir dans le lien');
 			this.shareStep.set(null);
 			this.shareLoading.set(false);
 			return;
 		}
 
-		// Étape 3 : sélecteur pays
+		// Étape 3 : sélecteur pays (dernier recours)
 		this.shareCountryOpts.set(this.visitedNeighboringCountries());
 		this.shareStep.set(3);
 		this.shareLoading.set(false);
@@ -1142,14 +1151,22 @@ export class Map {
 		const h3data = this.cellsByResolution[7 as H3Resolution];
 		if (!h3data) return;
 		const filtered = this.share.filterCellsByCountry(h3data.counts, country);
-		const payload = this.share.buildHexPayload(filtered, 7 as H3Resolution);
-		const encoded = await this.share.encode({
-			v: 1,
-			mode: 'hex',
-			hex: payload,
-			stats: this.buildShareStats(),
-			ts: Math.floor(Date.now() / 1000),
-		});
+		const filteredCells = Object.keys(filtered);
+		const stats = this.buildShareStats();
+		const ts = Math.floor(Date.now() / 1000);
+
+		// R7 bruts d'abord, compact en fallback
+		const rawPayload = this.share.buildHexPayload(filtered, 7 as H3Resolution);
+		const rawData = { v: 1 as const, mode: 'hex' as const, hex: rawPayload, stats, ts };
+		const lenRaw = await this.share.encodedLength(rawData);
+		let encoded: string;
+		if (lenRaw <= 6000) {
+			encoded = await this.share.encode(rawData);
+		} else {
+			const compacted = compactCells(filteredCells);
+			const compactPayload: ShareHexPayload = { res: 7 as H3Resolution, cells: compacted, compact: true };
+			encoded = await this.share.encode({ v: 1, mode: 'hex', hex: compactPayload, stats, ts });
+		}
 		this.shareUrl.set(`${origin}/share?d=${encoded}`);
 		this.shareWarning.set(`Seuls les hexagones de ${country.name} sont partagés`);
 		this.viewCountry(country);
@@ -2324,7 +2341,8 @@ export class Map {
 				);
 				this.shareStats.set(data.stats ?? null);
 				if (data.mode === 'hex') {
-					this.applyShareHexData(data.hex.cells, data.hex.res);
+					const rawCells = data.hex.compact ? uncompactCells(data.hex.cells, 7) : data.hex.cells;
+					this.applyShareHexData(rawCells, data.hex.res);
 				} else {
 					this.applyShareDeptData(data.dept.depts);
 				}
@@ -2390,7 +2408,6 @@ export class Map {
 			for (const c of COUNTRY_BBOXES) {
 				if (lat >= c.minLat && lat <= c.maxLat && lng >= c.minLon && lng <= c.maxLon) {
 					needed.add(c.code);
-					break;
 				}
 			}
 		}
@@ -3606,8 +3623,7 @@ export class Map {
 					: zoom >= polylineThreshold && !this.selectedTripCoords
 						? 'polyline'
 						: 'hex';
-		const mode: Mode =
-			this.shareIsOpen && this.shareMode() === 'dept' && modeFromZoom !== 'polyline' ? 'dept' : modeFromZoom;
+		const mode: Mode = this.shareIsOpen && modeFromZoom !== 'polyline' ? (this.shareMode() as Mode) : modeFromZoom;
 		this.logger.log(
 			'Map',
 			`[updateView] zoom=${zoom.toFixed(2)} deptThreshold=${this.deptThreshold} newTripIndices=${!!this.newTripIndicesForPolyline} → mode=${mode} (current=${this.currentMode})`,
@@ -3952,6 +3968,7 @@ export class Map {
 	}
 
 	private onHexClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }): void {
+		if (this.isShare) return;
 		if (e.originalEvent.defaultPrevented) return;
 		if ((e.originalEvent.target as HTMLElement)?.closest?.('.maplibregl-popup')) return;
 		// Ne pas traiter si l'utilisateur a cliqué sur un stat-point (pause, max vitesse…)
