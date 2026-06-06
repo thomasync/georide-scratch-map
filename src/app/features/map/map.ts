@@ -253,6 +253,7 @@ export class Map {
 	shareStats = signal<ShareStats | null>(null);
 	showSharePanel = signal(false);
 	shareShowStats = signal(true);
+	shareHideLabels = signal(false);
 	shareMode = signal<'dept' | 'hex'>('dept');
 	shareUrl = signal('');
 	shareWarning = signal('');
@@ -267,6 +268,9 @@ export class Map {
 	private shareRecaptureHandler: (() => void) | null = null;
 	private shareRecaptureVersion = 0;
 	private shareWrappedData: WrappedCardData | null = null;
+	private shareInitialCamera: { center: [number, number]; zoom: number; bearing: number; pitch: number } | null =
+		null;
+	private hiddenLayersOriginalVisibility: Record<string, string> = {};
 
 	showNewCellsRecap = signal(false);
 	newCellsRecapData = signal<NewCellsRecapData | null>(null);
@@ -907,8 +911,15 @@ export class Map {
 	openSharePanel(): void {
 		if (!this.map) return;
 		this.shareIsOpen = true;
+		this.shareInitialCamera = {
+			center: this.map.getCenter().toArray() as [number, number],
+			zoom: this.map.getZoom(),
+			bearing: this.map.getBearing(),
+			pitch: this.map.getPitch(),
+		};
 		// Pré-sélectionner le tab selon la vue courante (hex si zoom > seuil dept, dept sinon)
 		this.shareMode.set(this.currentMode === 'dept' ? 'dept' : 'hex');
+		this.shareHideLabels.set(false);
 		this.shareUrl.set('');
 		this.shareWarning.set('');
 		this.shareStep.set(null);
@@ -920,15 +931,23 @@ export class Map {
 		// Calcul des stats une seule fois à l'ouverture (coûteux, pas recalculé à chaque preview)
 		this.shareWrappedData = this.buildWrappedData();
 		const captureAndShow = () => {
-			let idleDone = false;
+			this.showSharePanel.set(true);
+			// Pré-charger les couches dept si nécessaire : le worker GeoJSON démarre avant l'attente idle
+			if (this.shareMode() === 'dept') this.ensureDeptLayers();
 			const doCapture = () => {
-				this.map!.once('render', () => {
-					this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
-					this.showSharePanel.set(true);
-					this.updateSharePreview();
-				});
+				// Double-idle : un triggerRepaint flush les mises à jour GeoJSON en attente,
+				// puis idle confirme que tout est rendu avant la capture finale
 				this.map!.triggerRepaint();
+				this.map!.once('idle', () => {
+					this.map!.once('render', () => {
+						this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
+						this.updateSharePreview();
+						void this.buildShareUrlCore();
+					});
+					this.map!.triggerRepaint();
+				});
 			};
+			let idleDone = false;
 			const onIdle = () => {
 				idleDone = true;
 				doCapture();
@@ -939,7 +958,7 @@ export class Map {
 					this.map!.off('idle', onIdle);
 					doCapture();
 				}
-			}, 1000);
+			}, 1500);
 		};
 		if (this.shareMode() === 'hex') {
 			// moveend fire de façon synchrone avec animate:false → listener avant la navigation
@@ -965,6 +984,11 @@ export class Map {
 		if (this.shareRecaptureHandler && this.map) {
 			this.map.off('moveend', this.shareRecaptureHandler);
 		}
+		this.restoreLabels();
+		if (this.shareInitialCamera && this.map) {
+			this.map.jumpTo(this.shareInitialCamera);
+			this.shareInitialCamera = null;
+		}
 		this.showSharePanel.set(false);
 		this.shareUrl.set('');
 		this.shareWarning.set('');
@@ -983,6 +1007,59 @@ export class Map {
 		this.updateSharePreview();
 	}
 
+	onShareHideLabelsToggle(): void {
+		const hide = !this.shareHideLabels();
+		this.shareHideLabels.set(hide);
+		if (hide) {
+			this.hideLabelsForShare();
+		} else {
+			this.restoreLabels();
+		}
+		this.captureMapForSharePreview();
+	}
+
+	private hideLabelsForShare(): void {
+		if (!this.map) return;
+		this.hiddenLayersOriginalVisibility = {};
+		for (const layer of this.map.getStyle()?.layers ?? []) {
+			if (layer.type === 'symbol') {
+				const vis = (this.map.getLayoutProperty(layer.id, 'visibility') as string | undefined) ?? 'visible';
+				this.hiddenLayersOriginalVisibility[layer.id] = vis;
+				this.map.setLayoutProperty(layer.id, 'visibility', 'none');
+			}
+		}
+		if (this.map.getLayer('depts-labels')) {
+			const vis = (this.map.getLayoutProperty('depts-labels', 'visibility') as string | undefined) ?? 'visible';
+			this.hiddenLayersOriginalVisibility['depts-labels'] = vis;
+			this.map.setLayoutProperty('depts-labels', 'visibility', 'none');
+		}
+	}
+
+	private restoreLabels(): void {
+		if (!this.map || !Object.keys(this.hiddenLayersOriginalVisibility).length) return;
+		for (const [layerId, visibility] of Object.entries(this.hiddenLayersOriginalVisibility)) {
+			if (this.map.getLayer(layerId)) {
+				this.map.setLayoutProperty(layerId, 'visibility', visibility);
+			}
+		}
+		this.hiddenLayersOriginalVisibility = {};
+	}
+
+	private captureMapForSharePreview(): void {
+		if (!this.map) return;
+		const version = ++this.shareRecaptureVersion;
+		this.map.triggerRepaint();
+		this.map.once('idle', () => {
+			if (version !== this.shareRecaptureVersion) return;
+			this.map!.once('render', () => {
+				if (version !== this.shareRecaptureVersion) return;
+				this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
+				this.updateSharePreview();
+			});
+			this.map!.triggerRepaint();
+		});
+	}
+
 	private updateSharePreview(): void {
 		if (!this.shareCapturedCanvas) return;
 		// Utilise les stats déjà calculées à l'ouverture du panel (pas de recalcul coûteux)
@@ -991,7 +1068,7 @@ export class Map {
 			this.shareCapturedCanvas,
 			data,
 			this.shareShowStats(),
-			600,
+			1400,
 		);
 		this.sharePreviewSrc.set(canvas.toDataURL('image/png'));
 	}
@@ -1009,12 +1086,17 @@ export class Map {
 		// → on doit capturer PENDANT un render via triggerRepaint() + once('render')
 		const performCapture = () => {
 			if (version !== this.shareRecaptureVersion) return;
-			this.map!.once('render', () => {
-				if (version !== this.shareRecaptureVersion) return;
-				this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
-				this.updateSharePreview();
-			});
+			// Double-idle : flush les mises à jour GeoJSON avant la capture
 			this.map!.triggerRepaint();
+			this.map!.once('idle', () => {
+				if (version !== this.shareRecaptureVersion) return;
+				this.map!.once('render', () => {
+					if (version !== this.shareRecaptureVersion) return;
+					this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
+					this.updateSharePreview();
+				});
+				this.map!.triggerRepaint();
+			});
 		};
 
 		const handler = () => {
@@ -1044,7 +1126,43 @@ export class Map {
 		// viewMyTrips(false) tire moveend de façon synchrone → le listener doit être enregistré avant
 		this.recaptureForShare();
 		if (mode === 'dept') {
-			this.viewFrance(false);
+			this.ensureDeptLayers();
+			const visitedFeatures = this.enrichedDepts?.features.filter((f) => (f.properties?.['pct'] ?? 0) > 0);
+			if (visitedFeatures?.length) {
+				const countryVisits: Record<string, number> = {};
+				for (const f of visitedFeatures) {
+					const code = (f.properties?.['country'] as string | undefined) ?? 'FR';
+					countryVisits[code] = (countryVisits[code] ?? 0) + 1;
+				}
+				const uniqueCountries = Object.keys(countryVisits);
+				if (uniqueCountries.length > 2) {
+					// Plusieurs pays : vue d'ensemble sur tous les départements visités
+					const bounds = new maplibregl.LngLatBounds();
+					for (const f of visitedFeatures) {
+						const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+						const coords: GeoJSON.Position[] =
+							geom.type === 'Polygon'
+								? geom.coordinates[0]
+								: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
+						for (const [lng, lat] of coords as number[][]) bounds.extend([lng, lat]);
+					}
+					this.map!.fitBounds(bounds, { padding: 40, maxZoom: 7.5, animate: false });
+				} else {
+					// 1 ou 2 pays : centrer sur le pays avec le plus de départements visités
+					const topCode = uniqueCountries.sort(
+						(a, b) => (countryVisits[b] ?? 0) - (countryVisits[a] ?? 0),
+					)[0];
+					if (topCode === 'FR') {
+						this.viewFrance(false);
+					} else {
+						const country = COUNTRIES.find((c) => c.code === topCode) as NeighboringCountry | undefined;
+						if (country?.minLat !== undefined) this.viewCountry(country as NeighboringCountry);
+						else this.viewFrance(false);
+					}
+				}
+			} else {
+				this.viewFrance(false);
+			}
 		} else if (mode === 'hex') {
 			if (this.shareStep() === null) {
 				this.viewMyTrips(false, 1.2, 7);
@@ -1055,14 +1173,12 @@ export class Map {
 		}
 	}
 
-	async buildShareUrl(): Promise<void> {
+	private async buildShareUrlCore(): Promise<void> {
 		if (!this.map) return;
 		this.shareLoading.set(true);
 		const ts = Math.floor(Date.now() / 1000);
 		this.shareUrl.set('');
 		this.shareWarning.set('');
-
-		this.navigateForShareMode();
 
 		const origin = window.location.origin;
 
@@ -1143,6 +1259,12 @@ export class Map {
 		}
 	}
 
+	async buildShareUrl(): Promise<void> {
+		this.shareStep.set(null);
+		this.navigateForShareMode();
+		await this.buildShareUrlCore();
+	}
+
 	private deriveCompactCounts(
 		compactedCells: string[],
 		sourceCounts: Record<string, number>,
@@ -1207,10 +1329,13 @@ export class Map {
 
 	async onShareModeChange(mode: 'dept' | 'hex'): Promise<void> {
 		this.shareMode.set(mode);
-		this.shareUrl.set('');
-		this.shareWarning.set('');
 		this.shareStep.set(null);
 		this.navigateForShareMode();
+		await this.buildShareUrlCore();
+		if (this.shareHideLabels()) {
+			this.hideLabelsForShare();
+			this.captureMapForSharePreview();
+		}
 	}
 
 	copyShareUrl(): void {
@@ -2366,6 +2491,7 @@ export class Map {
 					d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
 				);
 				this.shareStats.set(data.stats ?? null);
+				this.updateSharePageMeta(data.stats);
 				if (data.mode === 'hex') {
 					const countsMap: Record<string, number> = {};
 					if (data.hex.compact) {
@@ -2584,6 +2710,33 @@ export class Map {
 				this.loadingHiding.set(false);
 			}, 400);
 		});
+	}
+
+	private updateSharePageMeta(stats: ShareStats | undefined): void {
+		const km = stats?.k ?? 0;
+		const trips = stats?.t ?? 0;
+		const kmLabel = km >= 1000 ? `${(km / 1000).toFixed(1).replace('.', ',')} k` : String(km);
+		const title =
+			trips > 0 ? `${trips} trajet${trips > 1 ? 's' : ''} · ${kmLabel} km — GeoRide` : 'GeoRide Scratch Map';
+		document.title = title;
+		const setMeta = (property: string, content: string) => {
+			let el = document.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+			if (!el) {
+				el = document.createElement('meta');
+				el.setAttribute('property', property);
+				document.head.appendChild(el);
+			}
+			el.setAttribute('content', content);
+		};
+		setMeta('og:title', title);
+		setMeta(
+			'og:description',
+			trips > 0
+				? `${trips} trajet${trips > 1 ? 's' : ''} pour ${kmLabel} km parcourus`
+				: 'Carte de trajets GeoRide',
+		);
+		setMeta('og:url', window.location.href);
+		setMeta('og:type', 'website');
 	}
 
 	private loadData(): void {
@@ -3111,6 +3264,7 @@ export class Map {
 			});
 			this.map.on('click', 'heatmap-fill', (e) => this.onHexClick(e));
 			this.map.on('mouseenter', 'heatmap-fill', () => {
+				if (this.isShare) return;
 				this.map!.getCanvas().style.cursor = 'pointer';
 			});
 			this.map.on('mouseleave', 'heatmap-fill', () => {

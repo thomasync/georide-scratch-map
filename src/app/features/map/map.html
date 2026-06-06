@@ -189,9 +189,15 @@
 @if (loading()) {
 	<div class="overlay-loading" [class.hiding]="loadingHiding()">
 		<span>
-			Chargement des trajets…
-			@if (loadingChunk(); as c) {
-				<span style="opacity: 0.6; font-size: 0.85em"> ({{ c.current }}&thinsp;/&thinsp;{{ c.total }})</span>
+			@if (isShare) {
+				Chargement…
+			} @else {
+				Chargement des trajets…
+				@if (loadingChunk(); as c) {
+					<span style="opacity: 0.6; font-size: 0.85em">
+						({{ c.current }}&thinsp;/&thinsp;{{ c.total }})</span
+					>
+				}
 			}
 		</span>
 	</div>
@@ -503,67 +509,85 @@
 			</div>
 
 			<!-- Preview image -->
-			@if (sharePreviewSrc()) {
-				<div class="share-preview-wrap">
+			<div class="share-preview-wrap">
+				@if (sharePreviewSrc()) {
 					<img
 						class="share-preview-img"
 						[src]="sharePreviewSrc()"
 						alt="Aperçu"
 						title="Clic droit → Enregistrer l'image"
 					/>
-				</div>
-			}
-
-			<!-- Toggle stats -->
-			<label class="share-toggle-row">
-				<input
-					type="checkbox"
-					class="share-toggle-input"
-					[checked]="shareShowStats()"
-					(change)="onShareStatsToggle()"
-				/>
-				<span class="share-toggle-label">Afficher les stats</span>
-			</label>
-
-			<div class="share-sep"></div>
-
-			<!-- Lien URL -->
-			<div class="share-link-title">Partager le lien</div>
-			<div class="share-tabs">
-				<button class="share-tab" [class.active]="shareMode() === 'dept'" (click)="onShareModeChange('dept')">
-					Départements
-				</button>
-				<button class="share-tab" [class.active]="shareMode() === 'hex'" (click)="onShareModeChange('hex')">
-					Hexagones
-				</button>
+				} @else {
+					<div class="share-preview-placeholder"></div>
+				}
 			</div>
 
-			<button class="share-generate-btn" (click)="buildShareUrl()" [disabled]="shareLoading()">
-				{{ shareLoading() ? 'Génération…' : 'Générer le lien' }}
-			</button>
-
-			@if (shareStep() === 3) {
-				<div class="share-country-row">
-					<label class="share-country-label">Filtrer par pays :</label>
-					<select class="share-country-select" (change)="onShareCountryChange($event)">
-						@for (c of shareCountryOpts(); track c.code) {
-							<option [value]="c.code">{{ c.flag }} {{ c.name }}</option>
-						}
-					</select>
+			@if (sharePreviewSrc()) {
+				<div class="share-toggles-row">
+					<label class="share-toggle-row">
+						<input
+							type="checkbox"
+							class="share-toggle-input"
+							[checked]="shareShowStats()"
+							(change)="onShareStatsToggle()"
+						/>
+						<span class="share-toggle-label">Afficher les stats</span>
+					</label>
+					<label class="share-toggle-row">
+						<input
+							type="checkbox"
+							class="share-toggle-input"
+							[checked]="shareHideLabels()"
+							(change)="onShareHideLabelsToggle()"
+						/>
+						<span class="share-toggle-label">Cacher les noms</span>
+					</label>
 				</div>
-			}
 
-			@if (shareWarning()) {
-				<div class="share-warning">⚠ {{ shareWarning() }}</div>
-			}
+				<div class="share-sep"></div>
 
-			@if (shareUrl()) {
-				<div class="share-url-row">
-					<input class="share-url-input" [value]="shareUrl()" readonly />
-					<button class="share-copy-btn" (click)="copyShareUrl()">
-						{{ shareCopied() ? '✓ Copié' : 'Copier' }}
+				<!-- Lien URL -->
+				<div class="share-link-title">Partager le lien</div>
+				<div class="share-tabs">
+					<button
+						class="share-tab"
+						[class.active]="shareMode() === 'dept'"
+						(click)="onShareModeChange('dept')"
+					>
+						Départements
+					</button>
+					<button class="share-tab" [class.active]="shareMode() === 'hex'" (click)="onShareModeChange('hex')">
+						Hexagones
 					</button>
 				</div>
+
+				@if (shareLoading()) {
+					<div class="share-generating">Génération du lien…</div>
+				}
+
+				@if (shareStep() === 3) {
+					<div class="share-country-row">
+						<label class="share-country-label">Filtrer par pays :</label>
+						<select class="share-country-select" (change)="onShareCountryChange($event)">
+							@for (c of shareCountryOpts(); track c.code) {
+								<option [value]="c.code">{{ c.flag }} {{ c.name }}</option>
+							}
+						</select>
+					</div>
+				}
+
+				@if (shareWarning()) {
+					<div class="share-warning">⚠ {{ shareWarning() }}</div>
+				}
+
+				@if (shareUrl()) {
+					<div class="share-url-row">
+						<input class="share-url-input" [value]="shareUrl()" readonly />
+						<button class="share-copy-btn" (click)="copyShareUrl()">
+							{{ shareCopied() ? '✓ Copié' : 'Copier' }}
+						</button>
+					</div>
+				}
 			}
 		</div>
 	</div>

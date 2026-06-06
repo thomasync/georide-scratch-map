@@ -1,5 +1,4 @@
 import { Injectable } from '@angular/core';
-import type maplibregl from 'maplibre-gl';
 import { cellToLatLng } from 'h3-js';
 
 export interface ShareDeptPayload {
@@ -68,17 +67,6 @@ export class ShareService {
 		const countValues = cells.map((c) => Math.min(3, Math.max(1, counts[c])));
 		const allOnes = countValues.every((v) => v === 1);
 		return allOnes ? { res, cells } : { res, cells, counts: countValues };
-	}
-
-	filterCellsByBounds(counts: Record<string, number>, bounds: maplibregl.LngLatBounds): Record<string, number> {
-		const filtered: Record<string, number> = {};
-		for (const cell of Object.keys(counts)) {
-			const [lat, lng] = cellToLatLng(cell);
-			if (bounds.contains([lng, lat])) {
-				filtered[cell] = counts[cell];
-			}
-		}
-		return filtered;
 	}
 
 	filterCellsByCountry(counts: Record<string, number>, country: NeighboringCountryBounds): Record<string, number> {

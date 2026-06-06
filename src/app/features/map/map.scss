@@ -742,6 +742,21 @@
 	cursor: context-menu;
 }
 
+.share-preview-placeholder {
+	width: 100%;
+	max-width: 280px;
+	aspect-ratio: 1;
+	border-radius: 0.5rem;
+	background: rgba(0, 0, 0, 0.08);
+	margin-bottom: 2.1rem;
+}
+
+.share-toggles-row {
+	display: flex;
+	gap: 1.25rem;
+	flex-wrap: wrap;
+}
+
 .share-toggle-row {
 	display: flex;
 	align-items: center;
@@ -808,22 +823,12 @@
 	}
 }
 
-.share-generate-btn {
-	padding: 0.55rem 1rem;
-	border-radius: 0.5rem;
-	border: none;
-	background: #fdb300;
-	color: #000;
-	font-weight: 600;
-	cursor: pointer;
-	font-family: inherit;
-	font-size: 0.875rem;
-	transition: opacity 0.15s;
-
-	&:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
+.share-generating {
+	font-size: 0.82rem;
+	color: var(--text-muted);
+	text-align: center;
+	padding: 0.3rem 0;
+	opacity: 0.7;
 }
 
 .share-country-row {
