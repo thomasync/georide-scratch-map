@@ -171,6 +171,21 @@
 }
 <!-- end @if (!isShare) controls -->
 
+@if (isShare) {
+	<div class="controls">
+		<button
+			class="ctrl-btn"
+			(click)="theme.toggle()"
+			[title]="theme.isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+		>
+			<img [src]="theme.isDark() ? 'sunny.png' : 'crescent_moon.png'" alt="" class="ctrl-icon" />
+		</button>
+		<button class="ctrl-btn" (click)="goToLogin()" title="Se connecter">
+			<img src="user.png" alt="" class="ctrl-icon" />
+		</button>
+	</div>
+}
+
 @if (loading()) {
 	<div class="overlay-loading" [class.hiding]="loadingHiding()">
 		<span>

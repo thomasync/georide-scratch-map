@@ -10,6 +10,7 @@ export interface ShareHexPayload {
 	res: 6 | 7;
 	cells: string[];
 	compact?: true;
+	counts?: number[]; // parallel à cells, valeurs 1-3 ; absent = tout à 1
 }
 
 export interface ShareStats {
@@ -63,7 +64,10 @@ export class ShareService {
 	}
 
 	buildHexPayload(counts: Record<string, number>, res: 6 | 7): ShareHexPayload {
-		return { res, cells: Object.keys(counts) };
+		const cells = Object.keys(counts);
+		const countValues = cells.map((c) => Math.min(3, Math.max(1, counts[c])));
+		const allOnes = countValues.every((v) => v === 1);
+		return allOnes ? { res, cells } : { res, cells, counts: countValues };
 	}
 
 	filterCellsByBounds(counts: Record<string, number>, bounds: maplibregl.LngLatBounds): Record<string, number> {

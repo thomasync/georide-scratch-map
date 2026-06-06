@@ -1117,12 +1117,18 @@ export class Map {
 
 		// Étape 2 : compactCells (fallback si R7 bruts trop volumineux)
 		const compacted = compactCells(allCells);
-		const compactPayload: ShareHexPayload = { res: HEX_SHARE_RES, cells: compacted, compact: true };
+		const compactedCounts = this.deriveCompactCounts(compacted, h3data.counts);
+		const compactPayload = {
+			...this.share.buildHexPayload(compactedCounts, HEX_SHARE_RES),
+			compact: true as const,
+		};
 		const compactData = { v: 1 as const, mode: 'hex' as const, hex: compactPayload, stats, ts };
 		const len2 = await this.share.encodedLength(compactData);
 		if (len2 <= 6000) {
 			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(compactData)}`);
-			this.shareWarning.set('Couverture légèrement simplifiée pour tenir dans le lien');
+			this.shareWarning.set(
+				'La définition a été réduite pour tenir dans le lien (zones très parcourues regroupées en zones plus larges)',
+			);
 			this.shareStep.set(null);
 			this.shareLoading.set(false);
 			return;
@@ -1135,6 +1141,22 @@ export class Map {
 		if (this.shareCountryOpts().length) {
 			await this.buildShareUrlForCountry(this.shareCountryOpts()[0]);
 		}
+	}
+
+	private deriveCompactCounts(
+		compactedCells: string[],
+		sourceCounts: Record<string, number>,
+	): Record<string, number> {
+		const result: Record<string, number> = {};
+		for (const cell of compactedCells) {
+			if (sourceCounts[cell] !== undefined) {
+				result[cell] = sourceCounts[cell];
+			} else {
+				const r7children = uncompactCells([cell], 7);
+				result[cell] = Math.max(...r7children.map((c) => sourceCounts[c] ?? 1));
+			}
+		}
+		return result;
 	}
 
 	private buildShareStats(): ShareStats {
@@ -1164,7 +1186,11 @@ export class Map {
 			encoded = await this.share.encode(rawData);
 		} else {
 			const compacted = compactCells(filteredCells);
-			const compactPayload: ShareHexPayload = { res: 7 as H3Resolution, cells: compacted, compact: true };
+			const compactedCounts = this.deriveCompactCounts(compacted, filtered);
+			const compactPayload = {
+				...this.share.buildHexPayload(compactedCounts, 7 as H3Resolution),
+				compact: true as const,
+			};
 			encoded = await this.share.encode({ v: 1, mode: 'hex', hex: compactPayload, stats, ts });
 		}
 		this.shareUrl.set(`${origin}/share?d=${encoded}`);
@@ -2341,8 +2367,21 @@ export class Map {
 				);
 				this.shareStats.set(data.stats ?? null);
 				if (data.mode === 'hex') {
-					const rawCells = data.hex.compact ? uncompactCells(data.hex.cells, 7) : data.hex.cells;
-					this.applyShareHexData(rawCells, data.hex.res);
+					const countsMap: Record<string, number> = {};
+					if (data.hex.compact) {
+						// Étaler chaque cellule compacte en R7, en propageant son count aux enfants
+						for (let i = 0; i < data.hex.cells.length; i++) {
+							const count = data.hex.counts?.[i] ?? 1;
+							for (const child of uncompactCells([data.hex.cells[i]], 7)) {
+								countsMap[child] = count;
+							}
+						}
+					} else {
+						for (let i = 0; i < data.hex.cells.length; i++) {
+							countsMap[data.hex.cells[i]] = data.hex.counts?.[i] ?? 1;
+						}
+					}
+					this.applyShareHexData(Object.keys(countsMap), data.hex.res, countsMap);
 				} else {
 					this.applyShareDeptData(data.dept.depts);
 				}
@@ -2353,15 +2392,15 @@ export class Map {
 			});
 	}
 
-	private applyShareHexData(cells: string[], res: 6 | 7): void {
+	private applyShareHexData(cells: string[], res: 6 | 7, countsMap?: Record<string, number>): void {
 		const counts: Record<string, number> = {};
-		for (const cell of cells) counts[cell] = 1;
+		for (const cell of cells) counts[cell] = countsMap?.[cell] ?? 1;
 		this.cellsByResolution = { [res]: { counts, cellToIndices: {} } };
 		if (res === 7) {
 			const counts6: Record<string, number> = {};
 			for (const cell of cells) {
 				const parent = cellToParent(cell, 6);
-				counts6[parent] = (counts6[parent] ?? 0) + 1;
+				counts6[parent] = Math.max(counts6[parent] ?? 0, counts[cell]);
 			}
 			this.cellsByResolution[6] = { counts: counts6, cellToIndices: {} };
 		}
@@ -4373,24 +4412,6 @@ export class Map {
 		this.logger.log('Map', `[DEPTCLICK] geom type=${geom?.type ?? 'null'}`);
 		if (!geom) return;
 		this.focusedDeptFeature = fullFeature;
-
-		if (this.isShare) {
-			// En mode share, pas de données trajets — juste nom + pct dans le panel en bas
-			const props = fullFeature.properties as Record<string, unknown>;
-			const countryCode = props?.['country'] as string | undefined;
-			const countryName = countryCode
-				? (COUNTRIES.find((c) => c.code === countryCode)?.name ?? countryCode)
-				: 'France';
-			this.focusStats.set({
-				trips: 0,
-				km: 0,
-				hex: 0,
-				pct: (props?.['pct'] as number) ?? pct,
-				name: props?.['nom'] as string | undefined,
-				countryName,
-			});
-			return;
-		}
 
 		this.setDeptStats(fullFeature);
 
