@@ -220,6 +220,45 @@
 						<span class="stat-sep">·</span>
 					}
 				}
+				@if (shareStats(); as ss) {
+					@if (!focusStats()) {
+						<div class="stat">
+							<span class="stat-value">{{ ss.t }}</span>
+							<span class="stat-label">{{ ss.t === 1 ? 'trajet' : 'trajets' }}</span>
+						</div>
+						<span class="stat-sep">·</span>
+						<div class="stat">
+							<span class="stat-value">{{
+								ss.k >= 1000 ? (ss.k / 1000).toFixed(1).replace('.', ',') + ' k' : ss.k
+							}}</span>
+							<span class="stat-label">km</span>
+						</div>
+						@if (ss.c && ss.c >= 2) {
+							<span class="stat-sep">·</span>
+							<div class="stat">
+								<span class="stat-value">{{ ss.c }}</span>
+								<span class="stat-label">pays</span>
+							</div>
+						}
+						@if (ss.ci && ss.ci > 0) {
+							<span class="stat-sep">·</span>
+							<div class="stat">
+								<span class="stat-value">{{ ss.ci }}</span>
+								<span class="stat-label">{{ ss.ci === 1 ? 'ville' : 'villes' }}</span>
+							</div>
+						}
+						@if (ss.r && ss.r > 0) {
+							<span class="stat-sep">·</span>
+							<div class="stat">
+								<span class="stat-value">{{ ss.r }}</span>
+								<span class="stat-label">{{ ss.r === 1 ? 'région' : 'régions' }}</span>
+							</div>
+						}
+						@if (shareDateLabel()) {
+							<span class="stat-sep">·</span>
+						}
+					}
+				}
 				@if (shareDateLabel()) {
 					<div class="stat">
 						<span class="stat-value stat-dept-name">{{ shareDateLabel() }}</span>

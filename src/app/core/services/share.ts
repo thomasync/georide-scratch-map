@@ -11,9 +11,17 @@ export interface ShareHexPayload {
 	cells: string[];
 }
 
+export interface ShareStats {
+	t: number; // trips
+	k: number; // km
+	c?: number; // countries
+	ci?: number; // cities
+	r?: number; // regions
+}
+
 export type ShareData =
-	| { v: 1; mode: 'dept'; dept: ShareDeptPayload; ts?: number }
-	| { v: 1; mode: 'hex'; hex: ShareHexPayload; ts?: number };
+	| { v: 1; mode: 'dept'; dept: ShareDeptPayload; stats?: ShareStats; ts?: number }
+	| { v: 1; mode: 'hex'; hex: ShareHexPayload; stats?: ShareStats; ts?: number };
 
 export interface NeighboringCountryBounds {
 	code: string;

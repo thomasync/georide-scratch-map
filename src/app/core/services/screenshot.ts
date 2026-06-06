@@ -83,7 +83,7 @@ export class ScreenshotService {
 		if (!showStats) return canvas;
 
 		// Voile sombre pour lisibilité
-		ctx.fillStyle = 'rgba(0,0,0,0.45)';
+		ctx.fillStyle = 'rgba(0,0,0,0.18)';
 		ctx.fillRect(0, 0, outputSize, outputSize);
 
 		const s = outputSize / 600;
@@ -104,13 +104,12 @@ export class ScreenshotService {
 		};
 
 		// Header
-		txt(`GeoRide Scratch Map · ${data.filterLabel}`, 300, 48, 18, '#fdb300', 'center', '600');
 
 		// Km principal
 		const kmFormatted =
 			data.totalKm >= 1000 ? `${(data.totalKm / 1000).toFixed(1).replace('.', ',')} k` : String(data.totalKm);
-		txt(`${kmFormatted} km`, 300, 125, 68, '#ffffff', 'center', 'bold');
-		txt('parcourus', 300, 158, 15, 'rgba(255,255,255,0.55)');
+		txt(kmFormatted, 300, 275, 68, '#ffffff', 'center', 'bold');
+		txt('km parcourus', 300, 308, 15, 'rgba(255,255,255,0.55)');
 
 		// 3 pilules stat
 		const pills = [
@@ -120,80 +119,35 @@ export class ScreenshotService {
 		];
 		const pillW = 140 * s;
 		const pillH = 52 * s;
-		const pillY = 185 * s;
+		const pillY = 335 * s;
 		const pillGap = 15 * s;
 		const pillsTotalW = pills.length * pillW + (pills.length - 1) * pillGap;
 		const pillsStartX = (outputSize - pillsTotalW) / 2;
 
+		ctx.textBaseline = 'middle';
 		pills.forEach((pill, i) => {
 			const px = pillsStartX + i * (pillW + pillGap);
-			ctx.fillStyle = 'rgba(0,0,0,0.4)';
+			ctx.fillStyle = 'rgba(0,0,0,0.18)';
 			this.roundRect(ctx, px, pillY, pillW, pillH, 10 * s);
 			ctx.fill();
+			const cx = px + pillW / 2;
 			ctx.font = `bold ${Math.round(15 * s)}px system-ui,sans-serif`;
 			ctx.fillStyle = '#ffffff';
 			ctx.textAlign = 'center';
-			ctx.fillText(pill.value, px + pillW / 2, pillY + 20 * s);
+			ctx.fillText(pill.value, cx, pillY + 18 * s);
 			ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
 			ctx.fillStyle = 'rgba(255,255,255,0.55)';
-			ctx.fillText(pill.label.toUpperCase(), px + pillW / 2, pillY + 38 * s);
+			ctx.fillText(pill.label.toUpperCase(), cx, pillY + 36 * s);
 		});
-
-		// Top départements
-		if (data.topDepts.length > 0) {
-			txt('TOP DÉPARTEMENTS', 300, 270, 11, 'rgba(255,255,255,0.4)');
-			const barW = 320 * s;
-			const barH = 6 * s;
-			const barX = (outputSize - barW) / 2;
-			data.topDepts.slice(0, 3).forEach((dept, i) => {
-				const by = (290 + i * 26) * s;
-				// fond barre
-				ctx.fillStyle = 'rgba(255,255,255,0.15)';
-				this.roundRect(ctx, barX, by, barW, barH, barH / 2);
-				ctx.fill();
-				// remplissage
-				const fillW = (dept.pct / 100) * barW;
-				ctx.fillStyle = '#fdb300';
-				this.roundRect(ctx, barX, by, Math.max(fillW, barH), barH, barH / 2);
-				ctx.fill();
-				// label
-				const labelX = barX - 5 * s;
-				ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
-				ctx.fillStyle = 'rgba(255,255,255,0.8)';
-				ctx.textAlign = 'right';
-				ctx.fillText(dept.name, labelX, by + barH);
-				ctx.textAlign = 'left';
-				ctx.fillText(`${dept.pct}%`, barX + barW + 5 * s, by + barH);
-			});
-		}
+		ctx.textBaseline = 'alphabetic';
 
 		// Fun facts
-		const facts: string[] = [];
-		if (data.topDaysOfWeek?.length) {
-			facts.push(`${data.topDaysOfWeek[0]}, ton jour préféré`);
-		}
-		if (data.departureHour !== null && data.departureHour !== undefined) {
-			facts.push(`Départ type : ${data.departureHour}h`);
-		}
-		if (data.bestMonth) {
-			const km =
-				data.bestMonth.km >= 1000
-					? `${Math.round(data.bestMonth.km / 1000)} k`
-					: String(Math.round(data.bestMonth.km));
-			facts.push(`Meilleur mois : ${data.bestMonth.label} (${km} km)`);
-		}
-		const extraParts: string[] = [];
-		if (data.countryCount > 1) extraParts.push(`${data.countryCount} pays`);
-		if (data.fullRegionCount > 0)
-			extraParts.push(`${data.fullRegionCount} dept${data.fullRegionCount > 1 ? 's' : ''} à +50%`);
-		if (extraParts.length) facts.push(extraParts.join(' · '));
-
-		facts.forEach((fact, i) => {
-			txt(fact, 300, 390 + i * 26, 13, 'rgba(255,255,255,0.8)');
-		});
 
 		// Footer
-		txt('scratch-map.georide.com', 300, 585, 11, 'rgba(255,255,255,0.3)');
+		const hostname = window.location.hostname;
+		if (!/^[\d.]+$/.test(hostname) && hostname !== 'localhost') {
+			txt(hostname, 300, 585, 11, 'rgba(255,255,255,0.3)');
+		}
 
 		return canvas;
 	}

@@ -57,7 +57,7 @@ import {
 } from '../../core/utils/fuel-consumption';
 import { buildSessions } from '../../core/utils/trip-session';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
-import { ShareService } from '../../core/services/share';
+import { ShareService, ShareStats } from '../../core/services/share';
 import { WrappedCardData } from '../../core/services/screenshot';
 
 type Mode = 'hex' | 'dept' | 'polyline';
@@ -241,6 +241,7 @@ export class Map {
 	showStatsModal = signal(false);
 	statsModalData = signal<StatsModalData | null>(null);
 
+	shareStats = signal<ShareStats | null>(null);
 	showSharePanel = signal(false);
 	shareShowStats = signal(true);
 	shareMode = signal<'dept' | 'hex'>('dept');
@@ -1060,7 +1061,13 @@ export class Map {
 				return;
 			}
 			const payload = this.share.buildDeptPayload(this.enrichedDepts);
-			const encoded = await this.share.encode({ v: 1, mode: 'dept', dept: payload, ts });
+			const encoded = await this.share.encode({
+				v: 1,
+				mode: 'dept',
+				dept: payload,
+				stats: this.buildShareStats(),
+				ts,
+			});
 			this.shareUrl.set(`${origin}/share?d=${encoded}`);
 			this.shareLoading.set(false);
 			return;
@@ -1084,7 +1091,8 @@ export class Map {
 
 		// Étape 1 : toutes les cellules
 		const allPayload = this.share.buildHexPayload(h3data.counts, HEX_SHARE_RES);
-		const allData = { v: 1 as const, mode: 'hex' as const, hex: allPayload, ts };
+		const stats = this.buildShareStats();
+		const allData = { v: 1 as const, mode: 'hex' as const, hex: allPayload, stats, ts };
 		const len1 = await this.share.encodedLength(allData);
 		if (len1 <= 1800) {
 			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(allData)}`);
@@ -1097,7 +1105,7 @@ export class Map {
 		const bounds = this.map.getBounds();
 		const filteredCounts = this.share.filterCellsByBounds(h3data.counts, bounds);
 		const vpPayload = this.share.buildHexPayload(filteredCounts, HEX_SHARE_RES);
-		const vpData = { v: 1 as const, mode: 'hex' as const, hex: vpPayload, ts };
+		const vpData = { v: 1 as const, mode: 'hex' as const, hex: vpPayload, stats, ts };
 		const len2 = await this.share.encodedLength(vpData);
 		if (len2 <= 1800) {
 			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(vpData)}`);
@@ -1116,6 +1124,14 @@ export class Map {
 		}
 	}
 
+	private buildShareStats(): ShareStats {
+		const s: ShareStats = { t: this.tripCount(), k: this.totalKm() };
+		if (this.countryCountStat() >= 2) s.c = this.countryCountStat();
+		if (this.cityCountStat() > 0) s.ci = this.cityCountStat();
+		if (this.fullRegionCount() > 0) s.r = this.fullRegionCount();
+		return s;
+	}
+
 	private async buildShareUrlForCountry(country: NeighboringCountry): Promise<void> {
 		if (!this.map) return;
 		const origin = window.location.origin;
@@ -1123,7 +1139,13 @@ export class Map {
 		if (!h3data) return;
 		const filtered = this.share.filterCellsByCountry(h3data.counts, country);
 		const payload = this.share.buildHexPayload(filtered, 7 as H3Resolution);
-		const encoded = await this.share.encode({ v: 1, mode: 'hex', hex: payload, ts: Math.floor(Date.now() / 1000) });
+		const encoded = await this.share.encode({
+			v: 1,
+			mode: 'hex',
+			hex: payload,
+			stats: this.buildShareStats(),
+			ts: Math.floor(Date.now() / 1000),
+		});
 		this.shareUrl.set(`${origin}/share?d=${encoded}`);
 		this.shareWarning.set(`Seuls les hexagones de ${country.name} sont partagés`);
 		this.viewCountry(country);
@@ -2296,6 +2318,7 @@ export class Map {
 				this.shareDateLabel.set(
 					d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
 				);
+				this.shareStats.set(data.stats ?? null);
 				if (data.mode === 'hex') {
 					this.applyShareHexData(data.hex.cells, data.hex.res);
 				} else {
