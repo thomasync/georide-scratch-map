@@ -51,6 +51,271 @@
 			>
 				<!-- ── DÉCOUVERTE ── -->
 				@if (activeTab() === 'discovery') {
+					<!-- Récemment -->
+					@if (data.recentStats.currentStreakDays > 1) {
+						<div class="streak-banner">
+							<span class="streak-flame">🔥</span>
+							<span class="streak-text">{{ data.recentStats.currentStreakDays }} jours consécutifs</span>
+							@if (data.recentStats.currentStreakSince) {
+								<span class="streak-since"
+									>depuis le {{ formatShortDate(data.recentStats.currentStreakSince) }}</span
+								>
+							}
+						</div>
+					}
+
+					@let cur = data.recentStats.months[selectedMonthIdx()];
+					@let prev = data.recentStats.months[selectedMonthIdx() + 1];
+					<div class="section-title-row">
+						<span class="section-title">Récemment</span>
+						<div class="month-nav-arrows">
+							<button
+								class="month-nav-btn month-nav-arrow"
+								[class.month-nav-arrow--disabled]="selectedMonthIdx() === 0"
+								[disabled]="selectedMonthIdx() === 0"
+								(click)="selectMonth(selectedMonthIdx() - 1)"
+							>
+								←
+							</button>
+							<button
+								class="month-nav-btn month-nav-arrow"
+								[class.month-nav-arrow--disabled]="
+									selectedMonthIdx() === data.recentStats.months.length - 1
+								"
+								[disabled]="selectedMonthIdx() === data.recentStats.months.length - 1"
+								(click)="selectMonth(selectedMonthIdx() + 1)"
+							>
+								→
+							</button>
+						</div>
+					</div>
+
+					@if (cur) {
+						<div class="recent-month-label">{{ cur.label }}</div>
+						<div class="record-grid">
+							<div class="record-card">
+								<span class="record-label">Kilomètres</span>
+								<div class="record-value-row">
+									<span class="record-value"
+										>{{ formatKm(cur.km) }}<span class="record-value-sub"> km</span></span
+									>
+									@if (prev) {
+										<span class="trend-arrow">{{ trendArrow(cur.km, prev.km) }}</span>
+										<span class="record-value-prev"
+											>{{ formatKm(prev.km) }}<span class="prev-unit"> km</span></span
+										>
+									}
+								</div>
+							</div>
+							<div class="record-card">
+								<span class="record-label">Trajets</span>
+								<div class="record-value-row">
+									<span class="record-value">{{ cur.trips }}</span>
+									@if (prev) {
+										<span class="trend-arrow">{{ trendArrow(cur.trips, prev.trips) }}</span>
+										<span class="record-value-prev">{{ prev.trips }}</span>
+									}
+								</div>
+							</div>
+							@if (cur.maxSpeedKmh) {
+								<div class="record-card">
+									<span class="record-label">Vitesse max</span>
+									<div class="record-value-row">
+										<span class="record-value"
+											>{{ cur.maxSpeedKmh }}<span class="record-value-sub"> km/h</span></span
+										>
+										@if (prev && prev.maxSpeedKmh) {
+											<span class="trend-arrow">{{
+												trendArrow(cur.maxSpeedKmh, prev.maxSpeedKmh)
+											}}</span>
+											<span class="record-value-prev"
+												>{{ prev.maxSpeedKmh }}<span class="prev-unit"> km/h</span></span
+											>
+										}
+									</div>
+								</div>
+							}
+							@if (cur.bestDayKm && cur.bestDayDateLabel) {
+								<div class="record-card">
+									<span class="record-label">Meilleure journée</span>
+									<div class="record-value-row">
+										<span class="record-value"
+											>{{ formatKm(cur.bestDayKm)
+											}}<span class="record-value-sub"> km</span></span
+										>
+										@if (prev && prev.bestDayKm) {
+											@let prevBestDay = prev.bestDayKm;
+											<span class="trend-arrow">{{
+												trendArrow(cur.bestDayKm, prevBestDay)
+											}}</span>
+											<span class="record-value-prev"
+												>{{ formatKm(prevBestDay) }}<span class="prev-unit"> km</span></span
+											>
+										}
+									</div>
+									<div class="record-detail-row">
+										<span class="record-detail">{{ cur.bestDayDateLabel }}</span>
+										@if (prev && prev.bestDayDateLabel) {
+											<span class="record-detail record-detail--prev">{{
+												prev.bestDayDateLabel
+											}}</span>
+										}
+									</div>
+								</div>
+							}
+						</div>
+
+						@if (recentRecordsExist()) {
+							<div class="section-title">Records récents</div>
+							<div class="record-grid">
+								@if (data.speedStats.globalMaxKmh > 0) {
+									<div
+										class="record-card"
+										[class.record-card--highlight]="isRecent(data.recentStats.speedRecordDate)"
+									>
+										<span class="record-label">Vitesse max</span>
+										<span class="record-value"
+											>{{ data.speedStats.globalMaxKmh
+											}}<span class="record-value-sub"> km/h</span></span
+										>
+										@if (isRecent(data.recentStats.speedRecordDate)) {
+											<span class="badge-new">Nouveau !</span>
+										}
+									</div>
+								}
+								@if (data.turnStats.maxLeanAngle !== null) {
+									<div
+										class="record-card"
+										[class.record-card--highlight]="isRecent(data.recentStats.leanRecordDate)"
+									>
+										<span class="record-label">Angle max</span>
+										<span class="record-value"
+											>{{ data.turnStats.maxLeanAngle
+											}}<span class="record-value-sub">°</span></span
+										>
+										@if (isRecent(data.recentStats.leanRecordDate)) {
+											<span class="badge-new">Nouveau !</span>
+										}
+									</div>
+								}
+								@if (data.records.longestTrip) {
+									<div
+										class="record-card"
+										[class.record-card--highlight]="isRecent(data.recentStats.longestTripDate)"
+									>
+										<span class="record-label">Trajet le plus long</span>
+										<span class="record-value"
+											>{{ formatKm(data.records.longestTrip.km)
+											}}<span class="record-value-sub"> km</span></span
+										>
+										<span class="record-detail">{{ data.records.longestTrip.dateLabel }}</span>
+										@if (isRecent(data.recentStats.longestTripDate)) {
+											<span class="badge-new">Nouveau !</span>
+										}
+									</div>
+								}
+								@if (data.records.bestMonth) {
+									<div
+										class="record-card"
+										[class.record-card--highlight]="data.recentStats.bestMonthIsCurrent"
+									>
+										<span class="record-label">Meilleur mois</span>
+										<span class="record-value"
+											>{{ formatKm(data.records.bestMonth.km)
+											}}<span class="record-value-sub"> km</span></span
+										>
+										<span class="record-detail">{{ data.records.bestMonth.label }}</span>
+										@if (data.recentStats.bestMonthIsCurrent) {
+											<span class="badge-ongoing">En cours !</span>
+										}
+									</div>
+								}
+							</div>
+						}
+
+						@if (
+							cur.newCities.length > 0 ||
+							cur.newPassingCities.length > 0 ||
+							cur.newDepts.length > 0 ||
+							cur.newCountries.length > 0 ||
+							cur.newHexCount > 0
+						) {
+							<div class="section-title">Nouvelles découvertes</div>
+							@if (cur.newHexCount > 0) {
+								<div class="discovery-group">
+									<div class="place-chips">
+										<span class="place-chip place-chip--stat"
+											>🗺 {{ cur.newHexCount }} lieu{{
+												cur.newHexCount > 1 ? 'x' : ''
+											}}
+											débloqué{{ cur.newHexCount > 1 ? 's' : '' }}</span
+										>
+									</div>
+								</div>
+							}
+							@if (cur.newCountries.length > 0) {
+								<div class="discovery-group">
+									<span class="discovery-group-label">Pays</span>
+									<div class="place-chips">
+										@for (c of cur.newCountries; track c.code) {
+											<span class="place-chip"
+												>{{ countryFlag(c.code) }} {{ countryName(c.code) }}</span
+											>
+										}
+									</div>
+								</div>
+							}
+							@if (cur.newDepts.length > 0) {
+								<div class="discovery-group">
+									<span class="discovery-group-label">Départements ({{ cur.newDepts.length }})</span>
+									<div class="place-chips">
+										@for (d of cur.newDepts; track d.name) {
+											<span class="place-chip">{{ countryFlag(d.country) }} {{ d.name }}</span>
+										}
+									</div>
+								</div>
+							}
+							@if (cur.newCities.length > 0) {
+								<div class="discovery-group">
+									<span class="discovery-group-label">Villes ({{ cur.newCities.length }})</span>
+									@let showCityFlags = multipleCountries(cur.newCities);
+									<div class="place-chips">
+										@for (c of cur.newCities; track c.name + c.deptName) {
+											<button
+												class="place-chip place-chip--btn"
+												(click)="openTrip(c.tripIndexId)"
+											>
+												{{ showCityFlags ? countryFlag(c.country) + ' ' : '' }}{{ c.name }}
+											</button>
+										}
+									</div>
+								</div>
+							}
+							@if (cur.newPassingCities.length > 0) {
+								<div class="discovery-group">
+									<span class="discovery-group-label"
+										>Villes de passage ({{ cur.newPassingCities.length }})</span
+									>
+									@let showPassingFlags = multipleCountries(cur.newPassingCities);
+									<div class="place-chips">
+										@for (c of cur.newPassingCities; track c.name) {
+											<button
+												class="place-chip place-chip--muted place-chip--btn"
+												(click)="openTrip(c.tripIndexId)"
+											>
+												{{ showPassingFlags ? countryFlag(c.country) + ' ' : '' }}{{ c.name }}
+											</button>
+										}
+									</div>
+								</div>
+							}
+						}
+					} @else {
+						<div class="recent-empty">Pas de trajet ce mois-ci.</div>
+					}
+
+					<div class="discovery-separator"></div>
+
 					@if (showPrompt()) {
 						<div class="prompt-duration">
 							<span class="prompt-duration-label"
@@ -82,7 +347,11 @@
 						@for (group of deptsByCountry(); track group.countryCode) {
 							@if (deptsByCountry().length > 1) {
 								<div class="country-block">
-									<div class="country-row" (click)="toggleCountry(group.countryCode)">
+									<div
+										class="country-row"
+										#countryRow
+										(click)="toggleCountry(group.countryCode, countryRow)"
+									>
 										<span class="country-name"
 											>{{ group.countryName }} {{ countryFlag(group.countryCode) }}</span
 										>

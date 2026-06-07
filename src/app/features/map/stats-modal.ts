@@ -195,6 +195,33 @@ export interface PauseStats {
 	byKmRange: KmRangePauseStats[];
 }
 
+export interface MonthSummary {
+	key: string;
+	label: string;
+	shortLabel: string;
+	km: number;
+	trips: number;
+	ridingDays: number;
+	maxSpeedKmh: number | null;
+	bestDayKm: number | null;
+	bestDayDateLabel: string | null;
+	newCities: { name: string; deptName: string; country: string; tripIndexId: string }[];
+	newPassingCities: { name: string; country: string; tripIndexId: string }[];
+	newDepts: { name: string; country: string }[];
+	newCountries: { code: string }[];
+	newHexCount: number;
+}
+
+export interface RecentStats {
+	months: MonthSummary[];
+	currentStreakDays: number;
+	currentStreakSince: string | null;
+	speedRecordDate: string | null;
+	leanRecordDate: string | null;
+	longestTripDate: string | null;
+	bestMonthIsCurrent: boolean;
+}
+
 export interface StatsModalData {
 	homeCity: string | null;
 	depts: {
@@ -211,6 +238,7 @@ export interface StatsModalData {
 	pauseStats: PauseStats;
 	fuelStats: FuelStats;
 	records: Records;
+	recentStats: RecentStats;
 }
 
 type Tab = 'discovery' | 'distances' | 'speeds' | 'turns' | 'pauses' | 'fuel' | 'records';
@@ -236,6 +264,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	@ViewChild('promptTextarea') promptTextarea?: ElementRef<HTMLTextAreaElement>;
 
 	activeTab = signal<Tab>('records');
+	selectedMonthIdx = signal(0);
 	showPrompt = signal(false);
 	swipeDelta = signal(0);
 	snapping = signal(false);
@@ -314,13 +343,11 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	ngOnChanges(changes: SimpleChanges): void {
 		if (changes['data']) {
+			this.selectedMonthIdx.set(0);
 			if (this.data?.fuelStats.fuelType === this.fuelType()) {
 				this.fuelLoading.set(false);
 			}
-			const firstCountry = this.deptsByCountry()[0]?.countryCode;
-			if (firstCountry) {
-				this.expandedCountries.set(new Set([firstCountry]));
-			}
+			this.expandedCountries.set(new Set());
 		}
 	}
 
@@ -387,10 +414,19 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	readonly CITIES_LIMIT = 5;
 	readonly DEPTS_LIMIT = 5;
 
-	toggleCountry(code: string): void {
-		const current = this.expandedCountries();
-		this.expandedCountries.set(current.has(code) ? new Set() : new Set([code]));
+	toggleCountry(code: string, headerEl: HTMLElement): void {
+		const wasOpen = this.expandedCountries().has(code);
+		this.expandedCountries.set(wasOpen ? new Set() : new Set([code]));
 		this.expandedCountryDepts.set(null);
+		if (!wasOpen) {
+			setTimeout(() => {
+				const body = this.modalBody?.nativeElement;
+				if (!body) return;
+				const bodyRect = body.getBoundingClientRect();
+				const elRect = headerEl.getBoundingClientRect();
+				body.scrollBy({ top: elRect.top - bodyRect.top - 12, behavior: 'smooth' });
+			}, 0);
+		}
 	}
 
 	isCountryOpen(code: string): boolean {
@@ -705,6 +741,47 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	maxFuelMonthLiters(): number {
 		return Math.max(...(this.data?.fuelStats.byMonth.map((m) => m.litersConsumed) ?? [1]), 1);
+	}
+
+	selectMonth(idx: number): void {
+		this.selectedMonthIdx.set(idx);
+	}
+
+	multipleCountries(items: { country: string }[]): boolean {
+		return new Set(items.map((i) => i.country)).size > 1;
+	}
+
+	trendArrow(current: number, prev: number): '↑' | '↓' | '' {
+		if (current > prev) return '↑';
+		if (current < prev) return '↓';
+		return '';
+	}
+
+	private static shortDateFmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+
+	formatShortDate(dateStr: string): string {
+		return StatsModalComponent.shortDateFmt.format(new Date(dateStr + 'T12:00:00'));
+	}
+
+	countryName(code: string): string {
+		return StatsModalComponent.safeCountryName(code);
+	}
+
+	isRecent(date: string | null): boolean {
+		if (!date) return false;
+		const currentMonth = new Date().toISOString().substring(0, 7);
+		return date.substring(0, 7) === currentMonth;
+	}
+
+	recentRecordsExist(): boolean {
+		const r = this.data?.recentStats;
+		if (!r) return false;
+		return (
+			this.isRecent(r.speedRecordDate) ||
+			this.isRecent(r.leanRecordDate) ||
+			this.isRecent(r.longestTripDate) ||
+			r.bestMonthIsCurrent
+		);
 	}
 
 	formatEur(v: number): string {

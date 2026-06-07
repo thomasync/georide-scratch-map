@@ -54,6 +54,8 @@ import {
 	PauseStats,
 	FuelStats,
 	MonthlyFuelCost,
+	RecentStats,
+	MonthSummary,
 } from './stats-modal';
 import { FuelService } from '../../core/services/fuel.service';
 import { haversineKm } from '../../core/utils/elevation';
@@ -2329,7 +2331,209 @@ export class Map {
 			byMonth: fuelByMonthStats,
 		};
 
-		return { homeCity, depts, distanceStats, speedStats, turnStats, pauseStats, fuelStats, records };
+		// RecentStats — tableau de mois (12 derniers avec données)
+		const now = new Date();
+		const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+		const fmtShortMonth = new Intl.DateTimeFormat('fr-FR', { month: 'long' });
+
+		// Première date par dept et par pays (nécessaire pour les discoveries)
+		const deptFirstDate: Record<string, string> = {};
+		const countryFirstDate: Record<string, string> = {};
+		for (const trip of this.tripsWithCoords) {
+			const deptCode = tripDeptCode[trip.indexId];
+			const country = tripCountryCode[trip.indexId];
+			const date = trip.startTime.substring(0, 10);
+			if (deptCode && (!deptFirstDate[deptCode] || date < deptFirstDate[deptCode])) {
+				deptFirstDate[deptCode] = date;
+			}
+			if (country && (!countryFirstDate[country] || date < countryFirstDate[country])) {
+				countryFirstDate[country] = date;
+			}
+		}
+
+		// Première visite par ville de destination : date + tripIndexId (homeCity incluse)
+		const cityFirstData: Record<string, Record<string, { date: string; tripIndexId: string }>> = {};
+		const destinationCities = new Set<string>();
+		for (const trip of this.tripsWithCoords) {
+			const endCity = this.extractCity(trip.niceEndAddress ?? trip.endAddress);
+			if (!endCity) continue;
+			const code = tripDeptCode[trip.indexId];
+			if (!code) continue;
+			const date = trip.startTime.substring(0, 10);
+			destinationCities.add(endCity);
+			if (!cityFirstData[code]) cityFirstData[code] = {};
+			const existing = cityFirstData[code][endCity];
+			if (!existing || date < existing.date) {
+				cityFirstData[code][endCity] = { date, tripIndexId: trip.indexId };
+			}
+		}
+
+		// Première date + pays + tripIndexId par ville de passage
+		const passingCityFirstDate: Record<string, { date: string; country: string; tripIndexId: string }> = {};
+		for (const trip of this.tripsWithCoords) {
+			if (!trip.positions) continue;
+			const date = trip.startTime.substring(0, 10);
+			const country = tripCountryCode[trip.indexId] ?? 'FR';
+			for (const p of trip.positions) {
+				if (!p.address) continue;
+				const city = this.extractCity(p.address);
+				if (!city || destinationCities.has(city)) continue;
+				const existing = passingCityFirstDate[city];
+				if (!existing || date < existing.date) {
+					passingCityFirstDate[city] = { date, country, tripIndexId: trip.indexId };
+				}
+			}
+		}
+
+		// Première date par cellule H3 (pour compter les lieux débloqués par mois)
+		const res = this.mapSettings.deptResolution() as H3Resolution;
+		const h3data = this.cellsByResolution[res];
+		const cellFirstDate: Record<string, string> = {};
+		if (h3data) {
+			for (const [cell, indices] of Object.entries(h3data.cellToIndices)) {
+				for (const idx of indices) {
+					const trip = this.tripsWithCoords[idx];
+					if (!trip) continue;
+					const date = trip.startTime.substring(0, 10);
+					if (!cellFirstDate[cell] || date < cellFirstDate[cell]) {
+						cellFirstDate[cell] = date;
+					}
+				}
+			}
+		}
+
+		const buildMonthSummary = (prefix: string): MonthSummary | null => {
+			const monthTrips = this.tripsWithCoords.filter((t) => t.startTime.substring(0, 7) === prefix);
+			if (monthTrips.length === 0) return null;
+			const maxSpeedRaw = Math.max(...monthTrips.map((t) => t.maxSpeed));
+			const kmByDay: Record<string, number> = {};
+			for (const t of monthTrips) {
+				const day = t.startTime.substring(0, 10);
+				kmByDay[day] = (kmByDay[day] ?? 0) + t.distance / 1000;
+			}
+			const bestDayEntry = Object.entries(kmByDay).sort(([, a], [, b]) => b - a)[0] ?? null;
+			const rawLabel = fmtMonth.format(new Date(prefix + '-15'));
+
+			// Nouvelles villes : première visite all-time dans ce mois-ci
+			const newCities: MonthSummary['newCities'] = [];
+			for (const [deptCode, cities] of Object.entries(cityFirstData)) {
+				const dept = depts.find((d) => d.code === deptCode);
+				if (!dept) continue;
+				for (const [cityName, { date: fd, tripIndexId }] of Object.entries(cities)) {
+					if (fd.substring(0, 7) === prefix) {
+						newCities.push({ name: cityName, deptName: dept.name, country: dept.country, tripIndexId });
+					}
+				}
+			}
+			newCities.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+			// Nouveaux depts
+			const newDepts: MonthSummary['newDepts'] = [];
+			for (const dept of depts) {
+				const fd = deptFirstDate[dept.code];
+				if (fd && fd.substring(0, 7) === prefix) {
+					newDepts.push({ name: dept.name, country: dept.country });
+				}
+			}
+
+			// Nouveaux pays
+			const newCountries: MonthSummary['newCountries'] = [];
+			for (const [code, fd] of Object.entries(countryFirstDate)) {
+				if (fd.substring(0, 7) === prefix) {
+					newCountries.push({ code });
+				}
+			}
+
+			// Nouvelles villes de passage (positions GPS, hors destinations)
+			const newPassingCities: MonthSummary['newPassingCities'] = [];
+			for (const [city, { date: fd, country, tripIndexId }] of Object.entries(passingCityFirstDate)) {
+				if (fd.substring(0, 7) === prefix) {
+					newPassingCities.push({ name: city, country, tripIndexId });
+				}
+			}
+			newPassingCities.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+			// Lieux débloqués (cellules H3 visitées pour la première fois ce mois)
+			let newHexCount = 0;
+			for (const fd of Object.values(cellFirstDate)) {
+				if (fd.substring(0, 7) === prefix) newHexCount++;
+			}
+
+			return {
+				key: prefix,
+				label: rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1),
+				shortLabel: fmtShortMonth.format(new Date(prefix + '-15')),
+				km: Math.round(monthTrips.reduce((s, t) => s + t.distance / 1000, 0)),
+				trips: monthTrips.length,
+				ridingDays: new Set(monthTrips.map((t) => t.startTime.substring(0, 10))).size,
+				maxSpeedKmh: maxSpeedRaw > 0 ? Math.round(maxSpeedRaw * 1.852) : null,
+				bestDayKm: bestDayEntry ? Math.round(bestDayEntry[1]) : null,
+				bestDayDateLabel: bestDayEntry ? fmt.format(new Date(bestDayEntry[0] + 'T12:00:00')) : null,
+				newCities,
+				newPassingCities,
+				newDepts,
+				newCountries,
+				newHexCount,
+			};
+		};
+
+		const months: MonthSummary[] = [];
+		for (let i = 0; i < 12; i++) {
+			const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+			const prefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+			const summary = buildMonthSummary(prefix);
+			if (summary) months.push(summary);
+		}
+
+		// Streak actuel (jours consécutifs jusqu'à aujourd'hui ou hier)
+		let currentStreakDays = 0;
+		let currentStreakSince: string | null = null;
+		if (sortedDays.length > 0) {
+			const todayStr = new Date().toISOString().substring(0, 10);
+			const yesterday = new Date();
+			yesterday.setDate(yesterday.getDate() - 1);
+			const yesterdayStr = yesterday.toISOString().substring(0, 10);
+			const lastDay = sortedDays[sortedDays.length - 1];
+			if (lastDay === todayStr || lastDay === yesterdayStr) {
+				currentStreakDays = 1;
+				currentStreakSince = lastDay;
+				for (let i = sortedDays.length - 2; i >= 0; i--) {
+					const prevDate = new Date(sortedDays[i] + 'T12:00:00');
+					const nextDate = new Date(sortedDays[i + 1] + 'T12:00:00');
+					const diffDays = Math.round((nextDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+					if (diffDays === 1) {
+						currentStreakDays++;
+						currentStreakSince = sortedDays[i];
+					} else {
+						break;
+					}
+				}
+			}
+		}
+
+		// Dates des records all-time
+		const tripByIndexId: Record<string, (typeof this.tripsWithCoords)[0]> = {};
+		for (const t of this.tripsWithCoords) tripByIndexId[t.indexId] = t;
+		const speedRecordDate = speedStats.maxSpeedTripIndexId
+			? (tripByIndexId[speedStats.maxSpeedTripIndexId]?.startTime.substring(0, 10) ?? null)
+			: null;
+		const leanRecordDate = turnStats.maxLeanTripIndexId
+			? (tripByIndexId[turnStats.maxLeanTripIndexId]?.startTime.substring(0, 10) ?? null)
+			: null;
+		const longestTripDate = longestTripRaw?.startTime.substring(0, 10) ?? null;
+		const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
+		const recentStats: RecentStats = {
+			months,
+			currentStreakDays,
+			currentStreakSince,
+			speedRecordDate,
+			leanRecordDate,
+			longestTripDate,
+			bestMonthIsCurrent: bestMonthEntry?.[0] === currentMonthKey,
+		};
+
+		return { homeCity, depts, distanceStats, speedStats, turnStats, pauseStats, fuelStats, records, recentStats };
 	}
 
 	private tripSeason(year: number, month: number): string {
