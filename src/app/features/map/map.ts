@@ -25,6 +25,7 @@ import { DemoService, DemoData } from '../../core/services/demo';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MapSettingsService } from '../../core/services/map-settings';
 import { DatabaseService, StoredTrip, TripWithCoords } from '../../core/services/database';
+import { UserService } from '../../core/services/user.service';
 export type { TripWithCoords };
 import {
 	cellToBoundary,
@@ -167,6 +168,7 @@ export class Map {
 	private db = inject(DatabaseService);
 	private fuel = inject(FuelService);
 	private share = inject(ShareService);
+	user = inject(UserService);
 
 	fuelPrices = signal<Record<string, number | null>>({});
 	fuelCachedMonths = signal<string[]>([]);
@@ -274,6 +276,7 @@ export class Map {
 	shareCopied = signal(false);
 	sharePreviewSrc = signal('');
 	shareDateLabel = signal('');
+	shareFirstName = signal<string | null>(null);
 	private shareIsOpen = false;
 	private shareCapturedCanvas: HTMLCanvasElement | null = null;
 	private shareRecaptureHandler: (() => void) | null = null;
@@ -1386,6 +1389,8 @@ export class Map {
 		if (this.countryCountStat() >= 2) s.c = this.countryCountStat();
 		if (this.cityCountStat() > 0) s.ci = this.cityCountStat();
 		if (this.fullRegionCount() > 0) s.r = this.fullRegionCount();
+		const fn = this.user.firstName();
+		if (fn) s.fn = fn;
 		return s;
 	}
 
@@ -2689,6 +2694,7 @@ export class Map {
 					d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
 				);
 				this.shareStats.set(data.stats ?? null);
+				this.shareFirstName.set(data.stats?.fn ?? null);
 				this.updateSharePageMeta(data.stats);
 				if (data.mode === 'hex') {
 					const countsMap: Record<string, number> = {};
@@ -3041,6 +3047,12 @@ export class Map {
 		if (this.isShare) {
 			this.applyShareData();
 			return;
+		}
+
+		if (!this.isDemo) {
+			this.user.loadFromDb().subscribe(() => {
+				if (!this.user.firstName()) this.user.fetchAndStore().subscribe();
+			});
 		}
 
 		if (this.isDemo) {

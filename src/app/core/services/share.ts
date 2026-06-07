@@ -18,6 +18,7 @@ export interface ShareStats {
 	c?: number; // countries
 	ci?: number; // cities
 	r?: number; // regions
+	fn?: string; // firstName
 }
 
 export interface TripComputedStats {

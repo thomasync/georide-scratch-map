@@ -237,9 +237,6 @@
 						<span class="stat-value">{{ fs.pct }}%</span>
 						<span class="stat-label">exploré</span>
 					</div>
-					@if (shareDateLabel()) {
-						<span class="stat-sep">·</span>
-					}
 				}
 				@if (shareStats(); as ss) {
 					@if (!focusStats()) {
@@ -275,18 +272,17 @@
 								<span class="stat-label">{{ ss.r === 1 ? 'région' : 'régions' }}</span>
 							</div>
 						}
-						@if (shareDateLabel()) {
-							<span class="stat-sep">·</span>
-						}
 					}
 				}
-				@if (shareDateLabel()) {
-					<div class="stat">
-						<span class="stat-value stat-dept-name">{{ shareDateLabel() }}</span>
-						<span class="stat-label">partagé le</span>
-					</div>
-				}
 			</div>
+			@if (shareFirstName() || shareDateLabel()) {
+				<div class="share-credit-badge">
+					@if (shareDateLabel()) {
+						<span class="share-credit-badge-date">{{ shareDateLabel() }}</span>
+					}
+					<span class="share-credit-badge-name">{{ shareFirstName() ?? 'partagé le' }}</span>
+				</div>
+			}
 		</div>
 	</div>
 </ng-template>
