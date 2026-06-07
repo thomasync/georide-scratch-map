@@ -348,20 +348,27 @@
 							@if (deptsByCountry().length > 1) {
 								<div class="country-block">
 									<div
-										class="country-row"
+										class="country-sticky"
 										#countryRow
 										(click)="toggleCountry(group.countryCode, countryRow)"
 									>
-										<span class="country-name"
-											>{{ group.countryName }} {{ countryFlag(group.countryCode) }}</span
-										>
-										<span class="country-pct">{{ countryPct(group.depts) }}%</span>
-										<span class="country-chevron" [class.open]="isCountryOpen(group.countryCode)"
-											>›</span
-										>
-									</div>
-									<div class="country-bar">
-										<div class="country-bar-fill" [style.width.%]="countryPct(group.depts)"></div>
+										<div class="country-row">
+											<span class="country-name"
+												>{{ group.countryName }} {{ countryFlag(group.countryCode) }}</span
+											>
+											<span class="country-pct">{{ countryPct(group.depts) }}%</span>
+											<span
+												class="country-chevron"
+												[class.open]="isCountryOpen(group.countryCode)"
+												>›</span
+											>
+										</div>
+										<div class="country-bar">
+											<div
+												class="country-bar-fill"
+												[style.width.%]="countryPct(group.depts)"
+											></div>
+										</div>
 									</div>
 									@if (isCountryOpen(group.countryCode)) {
 										<div class="country-depts">

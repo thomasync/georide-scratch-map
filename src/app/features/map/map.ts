@@ -240,6 +240,7 @@ export class Map {
 	private focusEntryZoom: number | null = null;
 	private hexTapTimer: ReturnType<typeof setTimeout> | null = null;
 	private deptTapTimer: ReturnType<typeof setTimeout> | null = null;
+	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	private lastCanvasTouchStart = 0;
 	private justClosedTrip = false;
 	private openPopupCell: string | null = null;
@@ -2613,6 +2614,33 @@ export class Map {
 		return window.innerWidth < 768;
 	}
 
+	private openCtxMenu(lngLat: maplibregl.LngLat): void {
+		this.ctxMenuPopup?.remove();
+		this.ctxMenuPopup = null;
+		const { lat, lng } = lngLat;
+		const latStr = lat.toFixed(6);
+		const lngStr = lng.toFixed(6);
+		const googleUrl = `https://www.google.com/maps?q=${latStr},${lngStr}`;
+		const wazeUrl = `https://waze.com/ul?ll=${latStr},${lngStr}&navigate=yes`;
+		this.ctxMenuPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px', offset: 8 })
+			.setLngLat(lngLat)
+			.setHTML(
+				`<div class="ctx-menu">
+					<div class="ctx-coords">${latStr}, ${lngStr}</div>
+					<a class="ctx-btn" href="${googleUrl}" target="_blank" rel="noopener noreferrer">
+						<span>📍</span> Google Maps
+					</a>
+					<a class="ctx-btn" href="${wazeUrl}" target="_blank" rel="noopener noreferrer">
+						<span>🚗</span> Waze
+					</a>
+				</div>`,
+			)
+			.addTo(this.map!);
+		this.ctxMenuPopup.on('close', () => {
+			this.ctxMenuPopup = null;
+		});
+	}
+
 	private get deptThreshold(): number {
 		return this.isMobile
 			? this.mapSettings.deptModeZoomThresholdMob()
@@ -2678,9 +2706,10 @@ export class Map {
 
 		this.map.on('move', () => this.zoom.set(parseFloat(this.map!.getZoom().toFixed(2))));
 		if (this.isMobile) {
-			this.map.getCanvas().addEventListener(
+			const canvas = this.map.getCanvas();
+			canvas.addEventListener(
 				'touchstart',
-				() => {
+				(e: TouchEvent) => {
 					const now = Date.now();
 					if (now - this.lastCanvasTouchStart < this.mapSettings.doubleTapDelay()) {
 						if (this.hexTapTimer) {
@@ -2693,6 +2722,37 @@ export class Map {
 						}
 					}
 					this.lastCanvasTouchStart = now;
+
+					if (e.touches.length !== 1) return;
+					const touch = e.touches[0];
+					const rect = canvas.getBoundingClientRect();
+					const point: maplibregl.PointLike = [touch.clientX - rect.left, touch.clientY - rect.top];
+					this.longPressTimer = setTimeout(() => {
+						this.longPressTimer = null;
+						if ((this.map?.getZoom() ?? 0) < 12) return;
+						const lngLat = this.map!.unproject(point);
+						this.openCtxMenu(lngLat);
+					}, 600);
+				},
+				{ passive: true },
+			);
+			canvas.addEventListener(
+				'touchend',
+				() => {
+					if (this.longPressTimer) {
+						clearTimeout(this.longPressTimer);
+						this.longPressTimer = null;
+					}
+				},
+				{ passive: true },
+			);
+			canvas.addEventListener(
+				'touchmove',
+				() => {
+					if (this.longPressTimer) {
+						clearTimeout(this.longPressTimer);
+						this.longPressTimer = null;
+					}
 				},
 				{ passive: true },
 			);
@@ -2700,34 +2760,7 @@ export class Map {
 		this.map.on('contextmenu', (e) => {
 			e.originalEvent.preventDefault();
 			e.originalEvent.stopPropagation();
-			if ((this.map?.getZoom() ?? 0) < 12) return;
-			// Fermer le contextmenu précédent s'il existe
-			this.ctxMenuPopup?.remove();
-			this.ctxMenuPopup = null;
-			const { lat, lng } = e.lngLat;
-			const latStr = lat.toFixed(6);
-			const lngStr = lng.toFixed(6);
-			const googleUrl = `https://www.google.com/maps?q=${latStr},${lngStr}`;
-			const wazeUrl = `https://waze.com/ul?ll=${latStr},${lngStr}&navigate=yes`;
-			this.ctxMenuPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px', offset: 8 })
-				.setLngLat(e.lngLat)
-				.setHTML(
-					`
-					<div class="ctx-menu">
-						<div class="ctx-coords">${latStr}, ${lngStr}</div>
-						<a class="ctx-btn" href="${googleUrl}" target="_blank" rel="noopener noreferrer">
-							<span>📍</span> Google Maps
-						</a>
-						<a class="ctx-btn" href="${wazeUrl}" target="_blank" rel="noopener noreferrer">
-							<span>🚗</span> Waze
-						</a>
-					</div>
-				`,
-				)
-				.addTo(this.map!);
-			this.ctxMenuPopup?.on('close', () => {
-				this.ctxMenuPopup = null;
-			});
+			this.openCtxMenu(e.lngLat);
 		});
 
 		this.map.on('zoom', () => {
