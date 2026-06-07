@@ -20,9 +20,39 @@ export interface ShareStats {
 	r?: number; // regions
 }
 
+export interface TripComputedStats {
+	altMin: number;
+	altMax: number;
+	elevGain: number;
+	pctInTurn: number | null;
+	avgSpeedInTurns: number | null; // km/h
+	maxSpeedInTurns: number | null; // km/h
+	maxAngleDelta: number;
+	pauseCount: number;
+	pauseTotalMin: number;
+}
+
+export interface SharePolylinePayload {
+	coords: [number, number][]; // [lat, lon] downsampled
+	dist?: number; // mètres
+	dur?: number; // secondes (temps roulé)
+	title?: string; // adresse arrivée
+	startAddr?: string; // adresse départ
+	startTime?: string; // ISO
+	endTime?: string; // ISO
+	avgSpd?: number; // nœuds
+	maxSpd?: number; // nœuds
+	maxAngle?: number;
+	maxLeftAngle?: number | null;
+	maxRightAngle?: number | null;
+	computed?: TripComputedStats;
+	hex?: ShareHexPayload; // hexagones du trajet (optionnel, omis si trop grand)
+}
+
 export type ShareData =
 	| { v: 1; mode: 'dept'; dept: ShareDeptPayload; stats?: ShareStats; ts?: number }
-	| { v: 1; mode: 'hex'; hex: ShareHexPayload; stats?: ShareStats; ts?: number };
+	| { v: 1; mode: 'hex'; hex: ShareHexPayload; stats?: ShareStats; ts?: number }
+	| { v: 1; mode: 'polyline'; poly: SharePolylinePayload; stats?: ShareStats; ts?: number };
 
 export interface NeighboringCountryBounds {
 	code: string;

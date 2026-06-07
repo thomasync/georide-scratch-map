@@ -10,6 +10,7 @@ import {
 	signal,
 	untracked,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
 import { Observable, catchError, concat, defer, forkJoin, map as rxMap, of, reduce, switchMap, tap } from 'rxjs';
@@ -65,7 +66,13 @@ import {
 } from '../../core/utils/fuel-consumption';
 import { buildSessions } from '../../core/utils/trip-session';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
-import { ShareHexPayload, ShareService, ShareStats } from '../../core/services/share';
+import {
+	ShareHexPayload,
+	SharePolylinePayload,
+	ShareService,
+	ShareStats,
+	TripComputedStats,
+} from '../../core/services/share';
 import { WrappedCardData } from '../../core/services/screenshot';
 
 type Mode = 'hex' | 'dept' | 'polyline';
@@ -140,7 +147,7 @@ const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 
 @Component({
 	selector: 'app-map',
-	imports: [DevBoxComponent, StatsModalComponent, TripDetailPanelComponent],
+	imports: [DevBoxComponent, StatsModalComponent, TripDetailPanelComponent, NgTemplateOutlet],
 	templateUrl: './map.html',
 	styleUrl: './map.scss',
 })
@@ -162,6 +169,7 @@ export class Map {
 	private share = inject(ShareService);
 
 	fuelPrices = signal<Record<string, number | null>>({});
+	fuelCachedMonths = signal<string[]>([]);
 	private fuelType = 'SP98';
 
 	get isDemo(): boolean {
@@ -251,10 +259,13 @@ export class Map {
 	statsModalData = signal<StatsModalData | null>(null);
 
 	shareStats = signal<ShareStats | null>(null);
+	precomputedTripStats = signal<TripComputedStats | null>(null);
+	private lastTripComputedStats: TripComputedStats | null = null;
 	showSharePanel = signal(false);
 	shareShowStats = signal(true);
 	shareHideLabels = signal(false);
-	shareMode = signal<'dept' | 'hex'>('dept');
+	shareMode = signal<'dept' | 'hex' | 'trip'>('dept');
+	private shareLoopTripCount = 0;
 	shareUrl = signal('');
 	shareWarning = signal('');
 	shareStep = signal<3 | null>(null);
@@ -792,6 +803,10 @@ export class Map {
 
 	constructor() {
 		afterNextRender(() => this.initMap());
+		this.fuel.getPrefs().then(({ fuelType }) => {
+			this.fuelType = fuelType;
+			this.fuel.loadCachedMonths(fuelType).then((months) => this.fuelCachedMonths.set(months));
+		});
 
 		effect(() => {
 			const res = this.mapSettings.deptResolution() as H3Resolution;
@@ -917,8 +932,12 @@ export class Map {
 			bearing: this.map.getBearing(),
 			pitch: this.map.getPitch(),
 		};
-		// Pré-sélectionner le tab selon la vue courante (hex si zoom > seuil dept, dept sinon)
-		this.shareMode.set(this.currentMode === 'dept' ? 'dept' : 'hex');
+		// Pré-sélectionner le tab selon le contexte : trajet ouvert → trip, sinon dept/hex
+		if (this.showTripPanel() && this.selectedTripForPanel()) {
+			this.shareMode.set('trip');
+		} else {
+			this.shareMode.set(this.currentMode === 'dept' ? 'dept' : 'hex');
+		}
 		this.shareHideLabels.set(false);
 		this.shareUrl.set('');
 		this.shareWarning.set('');
@@ -935,16 +954,18 @@ export class Map {
 			// Pré-charger les couches dept si nécessaire : le worker GeoJSON démarre avant l'attente idle
 			if (this.shareMode() === 'dept') this.ensureDeptLayers();
 			const doCapture = () => {
-				// Double-idle : un triggerRepaint flush les mises à jour GeoJSON en attente,
-				// puis idle confirme que tout est rendu avant la capture finale
+				// Attendre idle (tiles + sources chargés), puis 350ms pour le worker GeoJSON,
+				// puis capturer dans un vrai frame de rendu
 				this.map!.triggerRepaint();
 				this.map!.once('idle', () => {
-					this.map!.once('render', () => {
-						this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
-						this.updateSharePreview();
-						void this.buildShareUrlCore();
-					});
-					this.map!.triggerRepaint();
+					setTimeout(() => {
+						this.map!.once('render', () => {
+							this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
+							this.updateSharePreview();
+							void this.buildShareUrlCore();
+						});
+						this.map!.triggerRepaint();
+					}, 350);
 				});
 			};
 			let idleDone = false;
@@ -968,11 +989,18 @@ export class Map {
 				captureAndShow();
 			};
 			this.map.once('moveend', onMoveEnd);
-			this.viewMyTrips(false, 1.2, 7);
+			this.map.fitBounds(this.squareAllTripsBounds(), { padding: 5, maxZoom: 7, animate: false });
 			if (!moved) {
 				this.map.off('moveend', onMoveEnd);
 				captureAndShow();
 			}
+		} else if (this.shareMode() === 'trip') {
+			// Pour trip : fitBounds synchrone puis captureAndShow (le double-idle suffira)
+			const trip = this.selectedTripForPanel();
+			if (trip?.coords.length) {
+				this.map.fitBounds(this.squareTripBounds(trip.coords), { padding: 20, maxZoom: 14, animate: false });
+			}
+			captureAndShow();
 		} else {
 			captureAndShow();
 		}
@@ -1028,11 +1056,6 @@ export class Map {
 				this.map.setLayoutProperty(layer.id, 'visibility', 'none');
 			}
 		}
-		if (this.map.getLayer('depts-labels')) {
-			const vis = (this.map.getLayoutProperty('depts-labels', 'visibility') as string | undefined) ?? 'visible';
-			this.hiddenLayersOriginalVisibility['depts-labels'] = vis;
-			this.map.setLayoutProperty('depts-labels', 'visibility', 'none');
-		}
 	}
 
 	private restoreLabels(): void {
@@ -1062,8 +1085,10 @@ export class Map {
 
 	private updateSharePreview(): void {
 		if (!this.shareCapturedCanvas) return;
-		// Utilise les stats déjà calculées à l'ouverture du panel (pas de recalcul coûteux)
-		const data = this.shareWrappedData ?? this.buildWrappedData();
+		const data =
+			this.shareMode() === 'trip'
+				? this.buildTripWrappedData()
+				: (this.shareWrappedData ?? this.buildWrappedData());
 		const canvas = this.screenshot.renderWrappedToCanvas(
 			this.shareCapturedCanvas,
 			data,
@@ -1086,16 +1111,18 @@ export class Map {
 		// → on doit capturer PENDANT un render via triggerRepaint() + once('render')
 		const performCapture = () => {
 			if (version !== this.shareRecaptureVersion) return;
-			// Double-idle : flush les mises à jour GeoJSON avant la capture
 			this.map!.triggerRepaint();
 			this.map!.once('idle', () => {
 				if (version !== this.shareRecaptureVersion) return;
-				this.map!.once('render', () => {
+				setTimeout(() => {
 					if (version !== this.shareRecaptureVersion) return;
-					this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
-					this.updateSharePreview();
-				});
-				this.map!.triggerRepaint();
+					this.map!.once('render', () => {
+						if (version !== this.shareRecaptureVersion) return;
+						this.shareCapturedCanvas = this.screenshot.cropSquare(this.map!.getCanvas());
+						this.updateSharePreview();
+					});
+					this.map!.triggerRepaint();
+				}, 350);
 			});
 		};
 
@@ -1129,46 +1156,26 @@ export class Map {
 			this.ensureDeptLayers();
 			const visitedFeatures = this.enrichedDepts?.features.filter((f) => (f.properties?.['pct'] ?? 0) > 0);
 			if (visitedFeatures?.length) {
-				const countryVisits: Record<string, number> = {};
-				for (const f of visitedFeatures) {
-					const code = (f.properties?.['country'] as string | undefined) ?? 'FR';
-					countryVisits[code] = (countryVisits[code] ?? 0) + 1;
-				}
-				const uniqueCountries = Object.keys(countryVisits);
-				if (uniqueCountries.length > 2) {
-					// Plusieurs pays : vue d'ensemble sur tous les départements visités
-					const bounds = new maplibregl.LngLatBounds();
-					for (const f of visitedFeatures) {
-						const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
-						const coords: GeoJSON.Position[] =
-							geom.type === 'Polygon'
-								? geom.coordinates[0]
-								: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
-						for (const [lng, lat] of coords as number[][]) bounds.extend([lng, lat]);
-					}
-					this.map!.fitBounds(bounds, { padding: 40, maxZoom: 7.5, animate: false });
-				} else {
-					// 1 ou 2 pays : centrer sur le pays avec le plus de départements visités
-					const topCode = uniqueCountries.sort(
-						(a, b) => (countryVisits[b] ?? 0) - (countryVisits[a] ?? 0),
-					)[0];
-					if (topCode === 'FR') {
-						this.viewFrance(false);
-					} else {
-						const country = COUNTRIES.find((c) => c.code === topCode) as NeighboringCountry | undefined;
-						if (country?.minLat !== undefined) this.viewCountry(country as NeighboringCountry);
-						else this.viewFrance(false);
-					}
-				}
+				this.map!.fitBounds(this.squareDeptBounds(visitedFeatures), {
+					padding: 20,
+					maxZoom: 7.5,
+					animate: false,
+				});
 			} else {
 				this.viewFrance(false);
 			}
 		} else if (mode === 'hex') {
 			if (this.shareStep() === null) {
-				this.viewMyTrips(false, 1.2, 7);
+				this.map!.fitBounds(this.squareAllTripsBounds(), { padding: 5, maxZoom: 7, animate: false });
 			} else if (this.shareStep() === 3 && this.shareCountryOpts().length) {
 				const country = this.shareCountryOpts()[0];
 				this.viewCountry(country);
+			}
+		} else if (mode === 'trip') {
+			const trip = this.selectedTripForPanel();
+			if (trip?.coords.length) {
+				this.showTripPanel.set(true);
+				this.map!.fitBounds(this.squareTripBounds(trip.coords), { padding: 20, maxZoom: 14, animate: false });
 			}
 		}
 	}
@@ -1181,6 +1188,87 @@ export class Map {
 		this.shareWarning.set('');
 
 		const origin = window.location.origin;
+
+		if (this.shareMode() === 'trip') {
+			const trip = this.selectedTripForPanel();
+			if (!trip) {
+				this.shareLoading.set(false);
+				return;
+			}
+
+			// Downsample coords
+			const raw = trip.coords;
+			const step = Math.max(1, Math.ceil(raw.length / 500));
+			const sampled: [number, number][] = [];
+			for (let i = 0; i < raw.length; i += step) sampled.push(raw[i]);
+			if (raw.length > 0 && sampled[sampled.length - 1] !== raw[raw.length - 1])
+				sampled.push(raw[raw.length - 1]);
+			const coords = sampled.map(
+				([lat, lon]) => [Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5] as [number, number],
+			);
+
+			const basePayload: SharePolylinePayload = {
+				coords,
+				dist: trip.distance,
+				dur: trip.duration ? Math.round(trip.duration / 1000) : undefined,
+				title: trip.niceEndAddress ?? trip.endAddress ?? undefined,
+				startAddr: trip.niceStartAddress ?? trip.startAddress ?? undefined,
+				startTime: trip.startTime || undefined,
+				endTime: trip.endTime || undefined,
+				avgSpd: trip.averageSpeed || undefined,
+				maxSpd: trip.maxSpeed || undefined,
+				maxAngle: trip.maxAngle || undefined,
+				maxLeftAngle: trip.maxLeftAngle ?? undefined,
+				maxRightAngle: trip.maxRightAngle ?? undefined,
+				computed: this.lastTripComputedStats ?? undefined,
+			};
+			const stats: ShareStats = { t: this.shareLoopTripCount || 1, k: Math.round((trip.distance ?? 0) / 1000) };
+
+			// Calculer les hexagones du trajet
+			const tripData = [{ coords: trip.coords, date: trip.startTime.substring(0, 10) }];
+			const h3data = this.h3.computeResolution(tripData, 7 as H3Resolution);
+			const allCells = Object.keys(h3data.counts);
+
+			// Étape 1 : avec hexagones R7 bruts (counts=1, pas de degrés)
+			const hexPayload: ShareHexPayload = { res: 7 as H3Resolution, cells: allCells };
+			const withHexData = {
+				v: 1 as const,
+				mode: 'polyline' as const,
+				poly: { ...basePayload, hex: hexPayload },
+				stats,
+				ts,
+			};
+			if ((await this.share.encodedLength(withHexData)) <= 6000) {
+				this.shareUrl.set(`${origin}/share?d=${await this.share.encode(withHexData)}`);
+				this.shareLoading.set(false);
+				return;
+			}
+
+			// Étape 2 : avec hexagones compactés (counts=1)
+			const compacted = compactCells(allCells);
+			const compactHex: ShareHexPayload = { res: 7 as H3Resolution, cells: compacted, compact: true };
+			const withCompactData = {
+				v: 1 as const,
+				mode: 'polyline' as const,
+				poly: { ...basePayload, hex: compactHex },
+				stats,
+				ts,
+			};
+			if ((await this.share.encodedLength(withCompactData)) <= 6000) {
+				this.shareUrl.set(`${origin}/share?d=${await this.share.encode(withCompactData)}`);
+				this.shareWarning.set(
+					'La définition a été réduite pour tenir dans le lien (zones très parcourues regroupées en zones plus larges)',
+				);
+				this.shareLoading.set(false);
+				return;
+			}
+
+			// Étape 3 : sans hexagones (trajet seul)
+			const baseData = { v: 1 as const, mode: 'polyline' as const, poly: basePayload, stats, ts };
+			this.shareUrl.set(`${origin}/share?d=${await this.share.encode(baseData)}`);
+			this.shareLoading.set(false);
+			return;
+		}
 
 		if (this.shareMode() === 'dept') {
 			this.ensureDeptLayers();
@@ -1327,12 +1415,17 @@ export class Map {
 		if (country) await this.buildShareUrlForCountry(country);
 	}
 
-	async onShareModeChange(mode: 'dept' | 'hex'): Promise<void> {
+	async onShareModeChange(mode: 'dept' | 'hex' | 'trip'): Promise<void> {
 		this.shareMode.set(mode);
 		this.shareStep.set(null);
 		this.navigateForShareMode();
 		await this.buildShareUrlCore();
 		if (this.shareHideLabels()) {
+			this.restoreLabels();
+			// Forcer depts-labels à la visibilité correcte pour le nouveau mode avant re-hide
+			if (this.map?.getLayer('depts-labels')) {
+				this.map.setLayoutProperty('depts-labels', 'visibility', mode === 'dept' ? 'visible' : 'none');
+			}
 			this.hideLabelsForShare();
 			this.captureMapForSharePreview();
 		}
@@ -1343,6 +1436,30 @@ export class Map {
 			this.shareCopied.set(true);
 			setTimeout(() => this.shareCopied.set(false), 2000);
 		});
+	}
+
+	shareTripTabLabel(): string {
+		return this.shareLoopTripCount > 1 ? `Trajets (${this.shareLoopTripCount})` : 'Trajet';
+	}
+
+	private buildTripWrappedData(): WrappedCardData {
+		const trip = this.selectedTripForPanel();
+		const km = Math.round((trip?.distance ?? 0) / 1000);
+		const count = this.shareLoopTripCount || 1;
+		const durH = trip?.duration ? Math.round(trip.duration / 3600000) : 0;
+		return {
+			totalKm: km,
+			totalTrips: count,
+			ridingDays: durH,
+			longestStreak: 0,
+			topDaysOfWeek: [],
+			departureHour: null,
+			bestMonth: null,
+			topDepts: [],
+			countryCount: 0,
+			fullRegionCount: 0,
+			filterLabel: '',
+		};
 	}
 
 	private buildWrappedData(): WrappedCardData {
@@ -2332,6 +2449,7 @@ export class Map {
 		});
 
 		this.map.on('click', (e) => {
+			if (this.isShare) return;
 			if (e.originalEvent.defaultPrevented) return;
 			if ((e.originalEvent.target as HTMLElement)?.closest?.('.maplibregl-popup')) return;
 			// Fermer le contextmenu sur tout clic hors popup
@@ -2508,8 +2626,10 @@ export class Map {
 						}
 					}
 					this.applyShareHexData(Object.keys(countsMap), data.hex.res, countsMap);
-				} else {
+				} else if (data.mode === 'dept') {
 					this.applyShareDeptData(data.dept.depts);
+				} else {
+					this.applySharePolylineData(data.poly);
 				}
 			})
 			.catch(() => {
@@ -2700,6 +2820,102 @@ export class Map {
 			this.map!.setMaxZoom(deptMaxZoom);
 			this.hideShareLoading();
 		});
+	}
+
+	private applySharePolylineData(poly: SharePolylinePayload): void {
+		// Décoder les hexagones si présents
+		let hexCells: string[] = [];
+		let hexCountsMap: Record<string, number> = {};
+		if (poly.hex) {
+			const rawCells = poly.hex.compact ? uncompactCells(poly.hex.cells, 7) : poly.hex.cells;
+			for (let i = 0; i < rawCells.length; i++) {
+				hexCountsMap[rawCells[i]] = poly.hex.counts?.[i] ?? 1;
+			}
+			hexCells = rawCells;
+		}
+
+		if (hexCells.length > 0) {
+			// Réutiliser applyShareHexData pour les hexagones, puis ajouter la ligne par-dessus
+			this.applyShareHexData(hexCells, 7, hexCountsMap);
+			// La ligne sera ajoutée après que les layers hex soient prêts
+			this.map!.once('idle', () => this.addShareTripLine(poly));
+		} else {
+			// Pas d'hexagones : init minimal + ligne seule
+			this.cellsByResolution = { [6 as H3Resolution]: { counts: {}, cellToIndices: {} } };
+			this.allTripsWithCoords = [];
+			this.tripsWithCoords = [];
+			this.tripCount.set(0);
+			this.totalKm.set(0);
+			this.departments = null;
+			this.enrichedDepts = null;
+			this.addLayers();
+			this.map!.once('idle', () => {
+				this.addShareTripLine(poly);
+				this.hideShareLoading();
+			});
+		}
+	}
+
+	private addShareTripLine(poly: SharePolylinePayload): void {
+		const coords = poly.coords;
+		const coordinates = coords.map(([lat, lon]) => [lon, lat]);
+		const geojson: GeoJSON.FeatureCollection = {
+			type: 'FeatureCollection',
+			features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} }],
+		};
+		if (!this.map!.getSource('share-trip')) {
+			this.map!.addSource('share-trip', { type: 'geojson', data: geojson });
+			this.map!.addLayer({
+				id: 'share-trip-line',
+				type: 'line',
+				source: 'share-trip',
+				layout: { 'line-cap': 'round', 'line-join': 'round' },
+				paint: { 'line-color': '#fdb300', 'line-width': 3, 'line-opacity': 0.9 },
+			});
+		}
+		// Empêcher de dézoomer jusqu'en mode départements (pas de données dept pour un trajet)
+		this.map!.setMinZoom(this.deptThreshold + 0.01);
+		if (coordinates.length > 0) {
+			const bounds = new maplibregl.LngLatBounds();
+			for (const c of coordinates) bounds.extend(c as [number, number]);
+			this.map!.fitBounds(bounds, {
+				padding: { top: 60, right: 60, bottom: 240, left: 60 },
+				maxZoom: 14,
+				animate: false,
+			});
+		}
+		const first = coords[0] ?? [0, 0];
+		const last = coords[coords.length - 1] ?? [0, 0];
+		const syntheticTrip: TripWithCoords = {
+			id: 0,
+			trackerId: 0,
+			indexId: 'share',
+			distance: poly.dist ?? 0,
+			duration: (poly.dur ?? 0) * 1000,
+			averageSpeed: poly.avgSpd ?? 0,
+			maxSpeed: poly.maxSpd ?? 0,
+			startTime: poly.startTime ?? '',
+			endTime: poly.endTime ?? '',
+			startLat: first[0],
+			startLon: first[1],
+			endLat: last[0],
+			endLon: last[1],
+			startAddress: poly.startAddr ?? '',
+			niceStartAddress: null,
+			endAddress: poly.title ?? '',
+			niceEndAddress: null,
+			staticImage: '',
+			maxAngle: poly.maxAngle ?? 0,
+			maxLeftAngle: poly.maxLeftAngle ?? null,
+			maxRightAngle: poly.maxRightAngle ?? null,
+			averageAngle: null,
+			isFavorite: false,
+			coords,
+		};
+		this.selectedTripForPanel.set(syntheticTrip);
+		this.selectedTripPositions.set([]);
+		this.precomputedTripStats.set(poly.computed ?? null);
+		this.showTripPanel.set(true);
 	}
 
 	private hideShareLoading(): void {
@@ -3816,7 +4032,16 @@ export class Map {
 					: zoom >= polylineThreshold && !this.selectedTripCoords
 						? 'polyline'
 						: 'hex';
-		const mode: Mode = this.shareIsOpen && modeFromZoom !== 'polyline' ? (this.shareMode() as Mode) : modeFromZoom;
+		const shareModeOverride = this.shareMode();
+		const mode: Mode = this.shareIsOpen
+			? shareModeOverride === 'trip'
+				? 'hex' // trajet : forcer hex même si zoom > seuil polyline
+				: shareModeOverride === 'dept' || shareModeOverride === 'hex'
+					? modeFromZoom !== 'polyline'
+						? shareModeOverride
+						: modeFromZoom
+					: modeFromZoom
+			: modeFromZoom;
 		this.logger.log(
 			'Map',
 			`[updateView] zoom=${zoom.toFixed(2)} deptThreshold=${this.deptThreshold} newTripIndices=${!!this.newTripIndicesForPolyline} → mode=${mode} (current=${this.currentMode})`,
@@ -4569,6 +4794,9 @@ export class Map {
 
 		this.setDeptStats(fullFeature);
 
+		// Sans données hex, afficher les infos sans zoomer ni masquer
+		if (this.hexagonCount() === 0) return;
+
 		// Show the mask that darkens everything outside this dept
 		this.logger.log('Map', '[DEPTCLICK] setData mask + visibility=visible');
 		(this.map!.getSource('dept-focus-mask') as maplibregl.GeoJSONSource).setData(this.deptToWorldMask(geom));
@@ -5292,6 +5520,85 @@ export class Map {
 		};
 	}
 
+	private squareAllTripsBounds(): maplibregl.LngLatBounds {
+		let minLat = Infinity,
+			maxLat = -Infinity,
+			minLon = Infinity,
+			maxLon = -Infinity;
+		for (const { coords } of this.tripsWithCoords) {
+			for (const [lat, lon] of coords) {
+				if (lat < minLat) minLat = lat;
+				if (lat > maxLat) maxLat = lat;
+				if (lon < minLon) minLon = lon;
+				if (lon > maxLon) maxLon = lon;
+			}
+		}
+		const centerLat = (minLat + maxLat) / 2;
+		const centerLon = (minLon + maxLon) / 2;
+		const latFactor = Math.cos((centerLat * Math.PI) / 180);
+		const dLat = maxLat - minLat;
+		const dLon = (maxLon - minLon) * latFactor;
+		const halfSize = (Math.max(dLat, dLon) / 2) * 1.05;
+		return new maplibregl.LngLatBounds(
+			[centerLon - halfSize / latFactor, centerLat - halfSize],
+			[centerLon + halfSize / latFactor, centerLat + halfSize],
+		);
+	}
+
+	private squareDeptBounds(features: GeoJSON.Feature[]): maplibregl.LngLatBounds {
+		let minLat = Infinity,
+			maxLat = -Infinity,
+			minLon = Infinity,
+			maxLon = -Infinity;
+		for (const f of features) {
+			const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+			const coords: GeoJSON.Position[] =
+				geom.type === 'Polygon' ? geom.coordinates[0] : (geom.coordinates as GeoJSON.Position[][][]).flat(2);
+			for (const [lon, lat] of coords as number[][]) {
+				if (lat < minLat) minLat = lat;
+				if (lat > maxLat) maxLat = lat;
+				if (lon < minLon) minLon = lon;
+				if (lon > maxLon) maxLon = lon;
+			}
+		}
+		const centerLat = (minLat + maxLat) / 2;
+		const centerLon = (minLon + maxLon) / 2;
+		const latFactor = Math.cos((centerLat * Math.PI) / 180);
+		const dLat = maxLat - minLat;
+		const dLon = (maxLon - minLon) * latFactor;
+		const halfSize = (Math.max(dLat, dLon) / 2) * 1.35;
+		return new maplibregl.LngLatBounds(
+			[centerLon - halfSize / latFactor, centerLat - halfSize],
+			[centerLon + halfSize / latFactor, centerLat + halfSize],
+		);
+	}
+
+	private squareTripBounds(coords: [number, number][]): maplibregl.LngLatBounds {
+		// Calcule des bounds carrées autour du trajet pour que la preview carré ait
+		// des marges homogènes quelle que soit la forme du trajet.
+		let minLat = Infinity,
+			maxLat = -Infinity,
+			minLon = Infinity,
+			maxLon = -Infinity;
+		for (const [lat, lon] of coords) {
+			if (lat < minLat) minLat = lat;
+			if (lat > maxLat) maxLat = lat;
+			if (lon < minLon) minLon = lon;
+			if (lon > maxLon) maxLon = lon;
+		}
+		const centerLat = (minLat + maxLat) / 2;
+		const centerLon = (minLon + maxLon) / 2;
+		// Corriger le ratio lon/lat selon la latitude (cos(lat))
+		const latFactor = Math.cos((centerLat * Math.PI) / 180);
+		const dLat = maxLat - minLat;
+		const dLon = (maxLon - minLon) * latFactor; // dLon en "unités lat"
+		const halfSize = (Math.max(dLat, dLon) / 2) * 1.35; // 35% de marge
+		return new maplibregl.LngLatBounds(
+			[centerLon - halfSize / latFactor, centerLat - halfSize],
+			[centerLon + halfSize / latFactor, centerLat + halfSize],
+		);
+	}
+
 	private getDeptBounds(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): [[number, number], [number, number]] {
 		const rings = geometry.type === 'Polygon' ? geometry.coordinates : geometry.coordinates.flat();
 		let minLng = Infinity,
@@ -5386,6 +5693,7 @@ export class Map {
 		this.selectedTripForPanel.set(trip);
 		this.selectedTripPositions.set(null);
 		this.showTripPanel.set(true);
+		this.shareLoopTripCount = 1;
 
 		const render = (positions: GeoRidePosition[] | null) => {
 			if (positions?.length) trip.positions = positions;
@@ -5479,12 +5787,21 @@ export class Map {
 		this.fitToVisited([this.maxDistanceTrip.coords], 14);
 	}
 
+	onCloseTripPanel(): void {
+		if (!this.shareIsOpen) this.clearTripLine();
+	}
+
+	onTripStatsComputed(stats: TripComputedStats): void {
+		this.lastTripComputedStats = stats;
+	}
+
 	clearTripLine(skipUpdateView = false): void {
 		this.selectedTrip = null;
 		this.selectedTripCoords = null;
 		this.showTripPanel.set(false);
 		this.selectedTripForPanel.set(null);
 		this.selectedTripPositions.set(null);
+		this.shareLoopTripCount = 0;
 		this.clearHoverPosition();
 		if (!this.map || !this.map.getSource('trip-line')) return;
 		(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
@@ -5591,6 +5908,11 @@ export class Map {
 			}
 		}
 		this.fuelPrices.set(prices);
+		this.fuelCachedMonths.set(
+			Object.entries(prices)
+				.filter(([, v]) => v !== null)
+				.map(([k]) => k),
+		);
 		this.statsModalData.set(this.computeStatsData());
 	}
 
@@ -5735,6 +6057,7 @@ export class Map {
 
 	onShowFullDay(trips: TripWithCoords[]): void {
 		if (!trips.length || !this.map?.getSource('trip-line')) return;
+		this.shareLoopTripCount = trips.length;
 
 		// Trier chronologiquement
 		const sorted = [...trips].sort((a, b) => a.startTime.localeCompare(b.startTime));

@@ -214,7 +214,9 @@
 					</div>
 				}
 			}
-			<button class="tdp-close" (click)="onClose()" title="Fermer">✕</button>
+			@if (closeable) {
+				<button class="tdp-close" (click)="onClose()" title="Fermer">✕</button>
+			}
 		</div>
 		<div class="tdp-stats-row">
 			<!-- Stats principales -->
@@ -318,12 +320,12 @@
 				@if (estimatedLiters !== null) {
 					<span class="tdp-stat-sep">·</span>
 					<span class="tdp-stat-item"
-						><b>{{ estimatedLiters }}</b> L</span
+						>~<b>{{ estimatedLiters }}</b> L</span
 					>
 					@if (estimatedCost !== null) {
 						<span class="tdp-stat-sep">·</span>
 						<span class="tdp-stat-item"
-							><b>{{ estimatedCost }}</b> €</span
+							>~<b>{{ estimatedCost }}</b> €</span
 						>
 					}
 				}

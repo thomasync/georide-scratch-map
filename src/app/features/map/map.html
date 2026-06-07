@@ -220,8 +220,8 @@
 	</div>
 }
 
-@if (!loading() && !error() && isShare) {
-	<!-- Share mode : stats du département focalisé (pas de filtres) -->
+<!-- ng-template doit être hors du @if pour être accessible -->
+<ng-template #shareStatsBar>
 	<div class="bottom-ui">
 		<div class="stats-row">
 			<div class="stats-panel">
@@ -289,7 +289,7 @@
 			</div>
 		</div>
 	</div>
-}
+</ng-template>
 
 @if (!loading() && !error() && !isShare) {
 	<!-- Feature: bottom UI (filter bar + stats panel) -->
@@ -559,6 +559,15 @@
 					<button class="share-tab" [class.active]="shareMode() === 'hex'" (click)="onShareModeChange('hex')">
 						Hexagones
 					</button>
+					@if (showTripPanel() && selectedTripForPanel()) {
+						<button
+							class="share-tab"
+							[class.active]="shareMode() === 'trip'"
+							(click)="onShareModeChange('trip')"
+						>
+							{{ shareTripTabLabel() }}
+						</button>
+					}
 				</div>
 
 				@if (shareLoading()) {
@@ -593,13 +602,52 @@
 	</div>
 }
 
-@if (showTripPanel()) {
+@if (!loading() && !error() && isShare) {
+	@if (showTripPanel()) {
+		<div class="share-trip-bottom">
+			<ng-container [ngTemplateOutlet]="shareStatsBar" />
+			<app-trip-detail-panel
+				class="in-stack"
+				[closeable]="false"
+				[precomputed]="precomputedTripStats()"
+				[trip]="selectedTripForPanel()"
+				[positions]="selectedTripPositions()"
+				[allTrips]="allTripsForPanel"
+				[availableMonths]="fuelCachedMonths()"
+				(hoverPosition)="onHoverPosition($event)"
+				(closePanelEvent)="onCloseTripPanel()"
+				(statsComputed)="onTripStatsComputed($event)"
+				(showFullDayEvent)="onShowFullDay($event)"
+				(flyToPosition)="onFlyToPosition($event)"
+				(snapToPosition)="onSnapToPosition($event)"
+				(animatePath)="onAnimatePath($event)"
+				(showCitySegment)="onShowCitySegment($event)"
+				(fitCitySegment)="onFitCitySegment($event)"
+				(showPauseChips)="onShowPauseChips($event)"
+				[activePauseIdx]="clickedPauseIdx()"
+				(followPosition)="onFollowPosition($event)"
+				(fitTripEvent)="onFitTrip()"
+				(selectTripEvent)="onSelectTrip($event)"
+				(showStatPoints)="onShowStatPoints($event)"
+				(filterDate)="onFilterDateFromPanel($event)"
+			/>
+		</div>
+	} @else {
+		<ng-container [ngTemplateOutlet]="shareStatsBar" />
+	}
+}
+
+@if (!isShare && showTripPanel()) {
 	<app-trip-detail-panel
+		[closeable]="true"
+		[precomputed]="precomputedTripStats()"
 		[trip]="selectedTripForPanel()"
 		[positions]="selectedTripPositions()"
 		[allTrips]="allTripsForPanel"
+		[availableMonths]="fuelCachedMonths()"
 		(hoverPosition)="onHoverPosition($event)"
-		(closePanelEvent)="clearTripLine()"
+		(closePanelEvent)="onCloseTripPanel()"
+		(statsComputed)="onTripStatsComputed($event)"
 		(showFullDayEvent)="onShowFullDay($event)"
 		(flyToPosition)="onFlyToPosition($event)"
 		(snapToPosition)="onSnapToPosition($event)"

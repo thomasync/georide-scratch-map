@@ -22,6 +22,7 @@ import { isLinkedTrip } from '../../../core/utils/trip-session';
 import { FuelService } from '../../../core/services/fuel.service';
 import { estimateLiters } from '../../../core/utils/fuel-consumption';
 import { DatabaseService } from '../../../core/services/database';
+import { TripComputedStats } from '../../../core/services/share';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler, Tooltip);
 
@@ -57,9 +58,13 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	@Input() positions: GeoRidePosition[] | null = null;
 	@Input() allTrips: TripWithCoords[] = [];
 	@Input() activePauseIdx: number | null = null;
+	@Input() closeable = true;
+	@Input() precomputed: TripComputedStats | null = null;
+	@Input() availableMonths: string[] = [];
 
 	@Output() hoverPosition = new EventEmitter<[number, number] | null>();
 	@Output() closePanelEvent = new EventEmitter<void>();
+	@Output() statsComputed = new EventEmitter<TripComputedStats>();
 	@Output() showFullDayEvent = new EventEmitter<TripWithCoords[]>();
 	@Output() flyToPosition = new EventEmitter<[number, number]>();
 	@Output() snapToPosition = new EventEmitter<[number, number]>();
@@ -120,15 +125,22 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 
 	pauseZones: { startKm: number; endKm: number; label: string; durationMin: number; lat: number; lon: number }[] = [];
 
+	private precomputedPauseCount: number | null = null;
+	private precomputedPauseTotalMin: number | null = null;
+
 	get totalPauseDurationStr(): string | null {
-		const counted = this.pauseZones.filter((z) => z.startKm >= 5);
-		if (!counted.length) return null;
-		const total = counted.reduce((s, z) => s + z.durationMin, 0);
+		const total =
+			this.precomputedPauseTotalMin ??
+			(() => {
+				const counted = this.pauseZones.filter((z) => z.startKm >= 5);
+				return counted.length ? counted.reduce((s, z) => s + z.durationMin, 0) : null;
+			})();
+		if (total === null || total === 0) return null;
 		return total >= 60 ? `${Math.floor(total / 60)}h${String(total % 60).padStart(2, '0')}` : `${total}min`;
 	}
 
 	get pauseCount(): number {
-		return this.pauseZones.filter((z) => z.startKm >= 5).length;
+		return this.precomputedPauseCount ?? this.pauseZones.filter((z) => z.startKm >= 5).length;
 	}
 
 	toggleAllStats(): void {
@@ -137,6 +149,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	onStatToggle(key: string, points: ([number, number] | null)[]): void {
+		if (!this.closeable) return;
 		const filtered = points.filter((p): p is [number, number] => p !== null);
 		if (!filtered.length) return;
 
@@ -163,7 +176,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	onPausesClick(): void {
-		if (!this.ptPauses.length) return;
+		if (!this.closeable || !this.ptPauses.length) return;
 		// Toggle : si déjà actif → tout masquer
 		if (this.pausePointsVisible) {
 			this.pausePointsVisible = false;
@@ -460,13 +473,13 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		const crow = haversineKm(t.startLat, t.startLon, t.endLat, t.endLon);
 		this.sinuosity = crow > 0.5 ? Math.round((t.distance / 1000 / crow) * 10) / 10 : null;
 		const elapsedMs = new Date(t.endTime).getTime() - new Date(t.startTime).getTime();
-		this.totalDurationStr = formatDuration(elapsedMs);
+		this.totalDurationStr = formatDuration(isNaN(elapsedMs) ? t.duration : elapsedMs);
 		// Estimation fuel — litres sans positions (positions améliorent la précision via buildChartData)
 		this.estimatedLiters = Math.round(estimateLiters(t.distance, t.averageSpeed) * 10) / 10;
 		this.estimatedCost = null;
 		const month = t.startTime.substring(0, 7);
 		this.fuel.getPrefs().then(({ fuelType }) =>
-			this.fuel.getPriceOrNearest(fuelType, month, []).then((price) => {
+			this.fuel.getPriceOrNearest(fuelType, month, this.availableMonths).then((price) => {
 				if (price !== null && this.trip?.indexId === t.indexId) {
 					this.estimatedCost = Math.round(this.estimatedLiters! * price * 100) / 100;
 					this.cdr.markForCheck();
@@ -480,6 +493,17 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		// null = still loading; [] = loaded but no data
 		if (!positions?.length) {
 			this.positionsLoading = this.positions === null && this.trip != null;
+			if (this.positions !== null && this.precomputed) {
+				this.altMin = this.precomputed.altMin;
+				this.altMax = this.precomputed.altMax;
+				this.elevGain = this.precomputed.elevGain;
+				this.pctInTurn = this.precomputed.pctInTurn;
+				this.avgSpeedInTurns = this.precomputed.avgSpeedInTurns;
+				this.maxSpeedInTurns = this.precomputed.maxSpeedInTurns;
+				this.maxAngleDelta = this.precomputed.maxAngleDelta;
+				this.precomputedPauseCount = this.precomputed.pauseCount || null;
+				this.precomputedPauseTotalMin = this.precomputed.pauseTotalMin || null;
+			}
 			this.cdr.markForCheck();
 			return;
 		}
@@ -717,6 +741,18 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		);
 		this.ptMaxAngle = [maxAnglePos.latitude, maxAnglePos.longitude];
 		this.ptPauses = this.pauseZones.filter((z) => z.startKm >= 5).map((z) => [z.lat, z.lon] as [number, number]);
+
+		this.statsComputed.emit({
+			altMin: this.altMin,
+			altMax: this.altMax,
+			elevGain: this.elevGain,
+			pctInTurn: this.pctInTurn,
+			avgSpeedInTurns: this.avgSpeedInTurns,
+			maxSpeedInTurns: this.maxSpeedInTurns,
+			maxAngleDelta: this.maxAngleDelta,
+			pauseCount: this.pauseCount,
+			pauseTotalMin: this.pauseZones.filter((z) => z.startKm >= 5).reduce((s, z) => s + z.durationMin, 0),
+		});
 
 		this.cdr.markForCheck();
 	}
@@ -1106,16 +1142,19 @@ function formatDuration(ms: number): string {
 
 function formatDate(iso: string): string {
 	const d = new Date(iso);
+	if (isNaN(d.getTime())) return '';
 	return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function formatDateShort(iso: string): string {
 	const d = new Date(iso);
+	if (isNaN(d.getTime())) return '';
 	return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 }
 
 function formatTime(iso: string): string {
 	const d = new Date(iso);
+	if (isNaN(d.getTime())) return '';
 	return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 

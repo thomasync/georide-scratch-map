@@ -50,6 +50,18 @@ export class FuelService {
 		return Object.fromEntries(results);
 	}
 
+	async loadCachedMonths(fuelType: string): Promise<string[]> {
+		const now = new Date();
+		const months: string[] = [];
+		for (let i = 1; i <= 24; i++) {
+			const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+			const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+			const cached = await firstValueFrom(this.db.fuelGet(`${KV_PREFIX}${fuelType}_${m}`));
+			if (cached !== null) months.push(m);
+		}
+		return months;
+	}
+
 	async getPrefs(): Promise<{ fuelType: string; tankSize: number }> {
 		const [ft, ts] = await Promise.all([
 			firstValueFrom(this.db.kvGet<string>('pref_fuelType')),
