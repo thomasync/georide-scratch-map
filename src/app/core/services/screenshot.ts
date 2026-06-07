@@ -99,6 +99,7 @@ export class ScreenshotService {
 		data: WrappedCardData,
 		showStats: boolean,
 		outputSize = 600,
+		blurPx = 1,
 	): HTMLCanvasElement {
 		const canvas = document.createElement('canvas');
 		canvas.width = outputSize;
@@ -116,54 +117,105 @@ export class ScreenshotService {
 
 		const s = outputSize / 600;
 
-		// Overlay léger — la carte reste visible, les tuiles apportent le contraste
-		ctx.fillStyle = 'rgba(0,0,0,0.38)';
-		ctx.fillRect(0, 0, outputSize, outputSize);
+		// Overlay orange (#eec459) pour les modes hex et trip
+		if (data.mode !== 'dept') {
+			ctx.fillStyle = 'rgba(238, 196, 89, 0.30)';
+			ctx.fillRect(0, 0, outputSize, outputSize);
+		}
 
 		const tiles = this.buildBentoTiles(data);
 
 		// Layout constants (base 600)
-		const MARGIN = 16 * s;
 		const GAP = 9 * s;
 		const HERO_H = 100 * s;
 		const HERO_GAP = 14 * s;
 		const ROW_H = 82 * s;
 		const HOSTNAME_RESERVE = 28 * s;
+		const TILE_PAD_H = 30 * s; // padding horizontal interne à chaque tuile
+		const MIN_TILE_W = 80 * s;
+
+		// Mesure la largeur de chaque colonne d'après le contenu
+		const colWidths = this.measureColWidths(ctx, tiles, s, TILE_PAD_H, MIN_TILE_W);
+		const gridW = colWidths.reduce((a, b) => a + b, 0) + (colWidths.length - 1) * GAP;
+		const gridX = (outputSize - gridW) / 2;
 
 		const numRows = Math.ceil(tiles.length / 3);
 		const contentH = HERO_H + HERO_GAP + numRows * ROW_H + (numRows - 1) * GAP;
-
-		// Center vertically in the canvas (leaving room for hostname)
 		const usableH = outputSize - HOSTNAME_RESERVE;
 		const topY = (usableH - contentH) / 2;
 
-		const heroY = topY;
-		const availW = outputSize - 2 * MARGIN;
-		const tileW = (availW - 2 * GAP) / 3;
+		// Hero : même largeur que la grille
+		this.renderHeroTile(ctx, gridX, topY, gridW, HERO_H, data, s, src, outputSize, blurPx);
 
-		// Hero tile
-		this.renderHeroTile(ctx, MARGIN, heroY, availW, HERO_H, data, s);
-
-		// Regular tiles (3 per row)
+		// Regular tiles
 		for (let i = 0; i < tiles.length; i++) {
 			const row = Math.floor(i / 3);
 			const col = i % 3;
-			const x = MARGIN + col * (tileW + GAP);
-			const y = heroY + HERO_H + HERO_GAP + row * (ROW_H + GAP);
-			this.renderBentoTile(ctx, x, y, tileW, ROW_H, tiles[i], s);
+			const x = gridX + colWidths.slice(0, col).reduce((a, b) => a + b, 0) + col * GAP;
+			const y = topY + HERO_H + HERO_GAP + row * (ROW_H + GAP);
+			this.renderBentoTile(ctx, x, y, colWidths[col], ROW_H, tiles[i], s, src, outputSize, blurPx);
 		}
 
 		// Hostname
 		const hostname = window.location.hostname;
 		if (!/^[\d.]+$/.test(hostname) && hostname !== 'localhost') {
 			ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
-			ctx.fillStyle = 'rgba(255,255,255,0.25)';
+			ctx.fillStyle = 'rgba(255,255,255,0.30)';
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'alphabetic';
 			ctx.fillText(hostname, outputSize / 2, outputSize - 10 * s);
 		}
 
 		return canvas;
+	}
+
+	private measureColWidths(
+		ctx: CanvasRenderingContext2D,
+		tiles: BentoTile[],
+		s: number,
+		padH: number,
+		minW: number,
+	): number[] {
+		const cols = Math.min(tiles.length, 3);
+		const widths = new Array(cols).fill(minW);
+		for (let i = 0; i < tiles.length; i++) {
+			const col = i % 3;
+			const tile = tiles[i];
+			ctx.font = `bold ${Math.round(22 * s)}px system-ui,sans-serif`;
+			const valueW = ctx.measureText(tile.value).width;
+			ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
+			const labelW = ctx.measureText(tile.label.toUpperCase()).width;
+			widths[col] = Math.max(widths[col], Math.max(valueW, labelW) + 2 * padH);
+		}
+		return widths;
+	}
+
+	private drawFrostedGlass(
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		r: number,
+		src: HTMLCanvasElement,
+		outputSize: number,
+		s: number,
+		blurPx: number,
+	): void {
+		ctx.save();
+		this.roundRect(ctx, x, y, w, h, r);
+		ctx.clip();
+
+		// Redessiner la carte floutée dans la zone de la tuile
+		ctx.filter = `blur(${Math.round(blurPx * s)}px)`;
+		ctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, outputSize, outputSize);
+		ctx.filter = 'none';
+
+		// Légère teinte orange plus claire
+		ctx.fillStyle = 'rgba(255, 200, 80, 0.18)';
+		ctx.fillRect(x, y, w, h);
+
+		ctx.restore();
 	}
 
 	private renderHeroTile(
@@ -174,11 +226,15 @@ export class ScreenshotService {
 		h: number,
 		data: WrappedCardData,
 		s: number,
+		src: HTMLCanvasElement,
+		outputSize: number,
+		blurPx: number,
 	): void {
-		ctx.fillStyle = 'rgba(0,0,0,0.62)';
-		this.roundRect(ctx, x, y, w, h, 14 * s);
-		ctx.fill();
-		ctx.strokeStyle = 'rgba(253,179,0,0.25)';
+		// Frosted glass
+		this.drawFrostedGlass(ctx, x, y, w, h, 14 * s, src, outputSize, s, blurPx);
+
+		// Bordure dorée subtile
+		ctx.strokeStyle = 'rgba(253,179,0,0.30)';
 		ctx.lineWidth = 1 * s;
 		this.roundRect(ctx, x, y, w, h, 14 * s);
 		ctx.stroke();
@@ -217,12 +273,12 @@ export class ScreenshotService {
 		ctx.fillText(heroValue, cx, valueY);
 
 		ctx.font = `${Math.round(13 * s)}px system-ui,sans-serif`;
-		ctx.fillStyle = 'rgba(255,255,255,0.55)';
+		ctx.fillStyle = 'rgba(0,0,0,0.55)';
 		ctx.fillText(heroLabel.toUpperCase(), cx, labelY);
 
 		if (hasSubtitle) {
 			ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
-			ctx.fillStyle = 'rgba(255,255,255,0.35)';
+			ctx.fillStyle = 'rgba(0,0,0,0.38)';
 			ctx.fillText(subtitle!, cx, subtitleY);
 		}
 
@@ -377,11 +433,14 @@ export class ScreenshotService {
 		h: number,
 		tile: BentoTile,
 		s: number,
+		src: HTMLCanvasElement,
+		outputSize: number,
+		blurPx: number,
 	): void {
-		ctx.fillStyle = 'rgba(0,0,0,0.55)';
-		this.roundRect(ctx, x, y, w, h, 12 * s);
-		ctx.fill();
-		ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+		// Frosted glass
+		this.drawFrostedGlass(ctx, x, y, w, h, 12 * s, src, outputSize, s, blurPx);
+
+		ctx.strokeStyle = 'rgba(255,255,255,0.18)';
 		ctx.lineWidth = 1 * s;
 		this.roundRect(ctx, x, y, w, h, 12 * s);
 		ctx.stroke();
@@ -389,13 +448,13 @@ export class ScreenshotService {
 		const cx = x + w / 2;
 
 		ctx.font = `bold ${Math.round(22 * s)}px system-ui,sans-serif`;
-		ctx.fillStyle = tile.accent ? '#fdb300' : '#ffffff';
+		ctx.fillStyle = tile.accent ? '#b85c00' : 'rgba(0,0,0,0.85)';
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'middle';
 		ctx.fillText(tile.value, cx, y + h * 0.38);
 
 		ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
-		ctx.fillStyle = 'rgba(255,255,255,0.45)';
+		ctx.fillStyle = 'rgba(0,0,0,0.45)';
 		ctx.fillText(tile.label.toUpperCase(), cx, y + h * 0.7);
 
 		ctx.textBaseline = 'alphabetic';

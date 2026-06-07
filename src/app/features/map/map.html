@@ -511,12 +511,10 @@
 			<!-- Preview image -->
 			<div class="share-preview-wrap">
 				@if (sharePreviewSrc()) {
-					<img
-						class="share-preview-img"
-						[src]="sharePreviewSrc()"
-						alt="Aperçu"
-						title="Clic droit → Enregistrer l'image"
-					/>
+					<img class="share-preview-img" [src]="sharePreviewSrc()" alt="Aperçu" />
+					<button class="share-preview-download" (click)="downloadSharePreview()" title="Télécharger">
+						<img src="/download.svg" alt="Download" />
+					</button>
 				} @else {
 					<div class="share-preview-placeholder"></div>
 				}
@@ -537,10 +535,10 @@
 						<input
 							type="checkbox"
 							class="share-toggle-input"
-							[checked]="shareHideLabels()"
-							(change)="onShareHideLabelsToggle()"
+							[checked]="shareShowLabels()"
+							(change)="onShareShowLabelsToggle()"
 						/>
-						<span class="share-toggle-label">Cacher les noms</span>
+						<span class="share-toggle-label">Afficher les noms</span>
 					</label>
 				</div>
 

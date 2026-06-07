@@ -754,8 +754,34 @@
 }
 
 .share-preview-wrap {
+	position: relative;
 	display: flex;
 	justify-content: center;
+}
+
+.share-preview-download {
+	position: absolute;
+	top: 8px;
+	right: calc(50% - 140px + 8px);
+	width: 32px;
+	height: 32px;
+	border-radius: 6px;
+	border: none;
+	background: #ffffff;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.15s;
+
+	&:hover {
+		background: #f0f0f0;
+	}
+
+	img {
+		width: 18px;
+		height: 18px;
+	}
 }
 
 .share-preview-img {

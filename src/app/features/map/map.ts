@@ -263,7 +263,7 @@ export class Map {
 	private lastTripComputedStats: TripComputedStats | null = null;
 	showSharePanel = signal(false);
 	shareShowStats = signal(true);
-	shareHideLabels = signal(false);
+	shareShowLabels = signal(false);
 	shareMode = signal<'dept' | 'hex' | 'trip'>('dept');
 	private shareLoopTripCount = 0;
 	shareUrl = signal('');
@@ -938,7 +938,8 @@ export class Map {
 		} else {
 			this.shareMode.set(this.currentMode === 'dept' ? 'dept' : 'hex');
 		}
-		this.shareHideLabels.set(false);
+		this.shareShowLabels.set(false);
+		this.hideLabelsForShare();
 		this.shareUrl.set('');
 		this.shareWarning.set('');
 		this.shareStep.set(null);
@@ -1031,17 +1032,25 @@ export class Map {
 	}
 
 	onShareStatsToggle(): void {
-		this.shareShowStats.set(!this.shareShowStats());
+		const showStats = !this.shareShowStats();
+		this.shareShowStats.set(showStats);
+		// Activer les stats cache automatiquement les noms (si actuellement affichés)
+		if (showStats && this.shareShowLabels()) {
+			this.shareShowLabels.set(false);
+			this.hideLabelsForShare();
+			this.captureMapForSharePreview();
+			return;
+		}
 		this.updateSharePreview();
 	}
 
-	onShareHideLabelsToggle(): void {
-		const hide = !this.shareHideLabels();
-		this.shareHideLabels.set(hide);
-		if (hide) {
-			this.hideLabelsForShare();
-		} else {
+	onShareShowLabelsToggle(): void {
+		const show = !this.shareShowLabels();
+		this.shareShowLabels.set(show);
+		if (show) {
 			this.restoreLabels();
+		} else {
+			this.hideLabelsForShare();
 		}
 		this.captureMapForSharePreview();
 	}
@@ -1089,11 +1098,14 @@ export class Map {
 			this.shareMode() === 'trip'
 				? this.buildTripWrappedData()
 				: (this.shareWrappedData ?? this.buildWrappedData());
+		// Blur plus élevé si les noms sont visibles (labels sur la carte)
+		const blurPx = this.shareShowLabels() ? 3 : 1;
 		const canvas = this.screenshot.renderWrappedToCanvas(
 			this.shareCapturedCanvas,
 			data,
 			this.shareShowStats(),
 			1400,
+			blurPx,
 		);
 		this.sharePreviewSrc.set(canvas.toDataURL('image/png'));
 	}
@@ -1420,7 +1432,7 @@ export class Map {
 		this.shareStep.set(null);
 		this.navigateForShareMode();
 		await this.buildShareUrlCore();
-		if (this.shareHideLabels()) {
+		if (!this.shareShowLabels()) {
 			this.restoreLabels();
 			// Forcer depts-labels à la visibilité correcte pour le nouveau mode avant re-hide
 			if (this.map?.getLayer('depts-labels')) {
@@ -1429,6 +1441,17 @@ export class Map {
 			this.hideLabelsForShare();
 			this.captureMapForSharePreview();
 		}
+	}
+
+	downloadSharePreview(): void {
+		const src = this.sharePreviewSrc();
+		if (!src) return;
+		const a = document.createElement('a');
+		a.href = src;
+		const trip = this.shareMode() === 'trip' ? this.selectedTripForPanel() : null;
+		const iso = trip?.startTime ? trip.startTime.slice(0, 10) : new Date().toISOString().slice(0, 10);
+		a.download = `geo-scratch-map-${iso}.png`;
+		a.click();
 	}
 
 	copyShareUrl(): void {
