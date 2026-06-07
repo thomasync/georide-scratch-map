@@ -2386,14 +2386,12 @@ export class Map {
 			}
 		}
 
-		// Première date par cellule H3 (pour compter les lieux débloqués par mois)
-		const res = this.mapSettings.deptResolution() as H3Resolution;
-		const h3data = this.cellsByResolution[res];
+		// Première date par cellule H3 R7 (pour compter les lieux débloqués par mois)
 		const cellFirstDate: Record<string, string> = {};
-		if (h3data) {
-			for (const [cell, indices] of Object.entries(h3data.cellToIndices)) {
+		if (this.allR7Data) {
+			for (const [cell, indices] of Object.entries(this.allR7Data.cellToIndices)) {
 				for (const idx of indices) {
-					const trip = this.tripsWithCoords[idx];
+					const trip = this.allTripsWithCoords[idx];
 					if (!trip) continue;
 					const date = trip.startTime.substring(0, 10);
 					if (!cellFirstDate[cell] || date < cellFirstDate[cell]) {
