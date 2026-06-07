@@ -1444,13 +1444,39 @@ export class Map {
 
 	private buildTripWrappedData(): WrappedCardData {
 		const trip = this.selectedTripForPanel();
-		const km = Math.round((trip?.distance ?? 0) / 1000);
-		const count = this.shareLoopTripCount || 1;
-		const durH = trip?.duration ? Math.round(trip.duration / 3600000) : 0;
+		const computed = this.lastTripComputedStats;
+		const distanceKm = Math.round((trip?.distance ?? 0) / 1000);
+		const durationMs = trip?.duration ?? 0;
+		const durationStr = this.formatTripDuration(durationMs);
+		const avgSpeedKmh = trip?.averageSpeed ? Math.round(trip.averageSpeed * 1.852) : undefined;
+		const maxSpeedKmh = trip?.maxSpeed ? Math.round(trip.maxSpeed * 1.852) : undefined;
+		const fromCity = trip ? (this.extractCity(trip.niceStartAddress ?? trip.startAddress) ?? null) : null;
+		const toCity = trip ? (this.extractCity(trip.niceEndAddress ?? trip.endAddress) ?? null) : null;
+
+		// Angles accéléromètre API (toujours dispos, sans chargement des positions)
+		const maxAngleFromApiDeg = trip?.maxAngle != null ? Math.round(Math.abs(90 - trip.maxAngle)) : null;
+		const maxLeftAngleDeg = trip?.maxLeftAngle != null ? Math.round(Math.abs(90 - trip.maxLeftAngle)) : null;
+		const maxRightAngleDeg = trip?.maxRightAngle != null ? Math.round(Math.abs(90 - trip.maxRightAngle)) : null;
+
+		// Date du trajet formatée
+		const startDate = trip?.startTime ? new Date(trip.startTime) : null;
+		const tripDateLabel = startDate
+			? new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' }).format(startDate) +
+				(startDate.getFullYear() !== new Date().getFullYear()
+					? ' ' + String(startDate.getFullYear()).slice(2)
+					: '')
+			: null;
+
+		// Durée totale voyage (riding + pauses)
+		const endDate = trip?.endTime ? new Date(trip.endTime) : null;
+		const elapsedMs = startDate && endDate ? endDate.getTime() - startDate.getTime() : 0;
+		const totalElapsedStr = elapsedMs > durationMs ? this.formatTripDuration(elapsedMs) : null;
+
 		return {
-			totalKm: km,
-			totalTrips: count,
-			ridingDays: durH,
+			mode: 'trip',
+			totalKm: distanceKm,
+			totalTrips: this.shareLoopTripCount || 1,
+			ridingDays: 0,
 			longestStreak: 0,
 			topDaysOfWeek: [],
 			departureHour: null,
@@ -1459,6 +1485,24 @@ export class Map {
 			countryCount: 0,
 			fullRegionCount: 0,
 			filterLabel: '',
+			distanceKm,
+			durationStr,
+			avgSpeedKmh,
+			maxSpeedKmh,
+			maxAngle: computed?.maxAngleDelta ?? undefined,
+			pauseCount: computed?.pauseCount ?? undefined,
+			pauseTotalMin: computed?.pauseTotalMin ?? undefined,
+			altMax: computed?.altMax ?? undefined,
+			pctInTurn: computed?.pctInTurn ?? null,
+			avgSpeedInTurnsKmh: computed?.avgSpeedInTurns ?? null,
+			maxSpeedInTurnsKmh: computed?.maxSpeedInTurns ?? null,
+			fromCity,
+			toCity,
+			maxAngleFromApiDeg,
+			maxLeftAngleDeg,
+			maxRightAngleDeg,
+			tripDateLabel,
+			totalElapsedStr,
 		};
 	}
 
@@ -1471,7 +1515,9 @@ export class Map {
 			.map((d) => ({ name: d.name, pct: d.pct }));
 		const r = stats.records;
 		const filterLabel = this.dateFilterLabels[this.dateFilter()] ?? 'Tout';
+		const mode = this.shareMode() as 'dept' | 'hex';
 		return {
+			mode,
 			totalKm: r.totalKm,
 			totalTrips: r.totalTrips,
 			ridingDays: r.ridingDays,
@@ -1483,7 +1529,18 @@ export class Map {
 			countryCount: this.countryCountStat(),
 			fullRegionCount: this.fullRegionCount(),
 			filterLabel,
+			maxSpeedAllKmh: stats.speedStats.globalMaxKmh,
+			bestDayKm: stats.records.longestDay?.km ?? 0,
+			totalRidingHours: stats.records.totalRidingHours ?? 0,
+			longestTripKm: stats.records.longestTrip?.km ?? 0,
 		};
+	}
+
+	private formatTripDuration(ms: number): string {
+		const h = Math.floor(ms / 3600000);
+		const m = Math.floor((ms % 3600000) / 60000);
+		if (h > 0) return `${h}h${m.toString().padStart(2, '0')}`;
+		return `${m}min`;
 	}
 
 	private computeStatsData(): StatsModalData {

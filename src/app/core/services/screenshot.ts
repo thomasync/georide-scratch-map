@@ -6,6 +6,8 @@ export interface ScreenshotStats {
 }
 
 export interface WrappedCardData {
+	mode: 'dept' | 'hex' | 'trip';
+	// dept + hex
 	totalKm: number;
 	totalTrips: number;
 	ridingDays: number;
@@ -17,6 +19,36 @@ export interface WrappedCardData {
 	countryCount: number;
 	fullRegionCount: number;
 	filterLabel: string;
+	maxSpeedAllKmh?: number;
+	bestDayKm?: number;
+	totalRidingHours?: number;
+	longestTripKm?: number;
+	// trip
+	distanceKm?: number;
+	durationStr?: string;
+	avgSpeedKmh?: number;
+	maxSpeedKmh?: number;
+	maxAngle?: number;
+	pauseCount?: number;
+	pauseTotalMin?: number;
+	pctInTurn?: number | null;
+	avgSpeedInTurnsKmh?: number | null;
+	maxSpeedInTurnsKmh?: number | null;
+	fromCity?: string | null;
+	toCity?: string | null;
+	altMax?: number;
+	// Angles API (sans positions)
+	maxAngleFromApiDeg?: number | null;
+	maxLeftAngleDeg?: number | null;
+	maxRightAngleDeg?: number | null;
+	tripDateLabel?: string | null;
+	totalElapsedStr?: string | null;
+}
+
+interface BentoTile {
+	value: string;
+	label: string;
+	accent?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -73,7 +105,7 @@ export class ScreenshotService {
 		canvas.height = outputSize;
 		const ctx = canvas.getContext('2d')!;
 
-		// Fond : crop carré de la map, mis à l'échelle outputSize×outputSize
+		// Map as full-bleed background
 		const src = sourceCanvas;
 		const srcSize = Math.min(src.width, src.height);
 		const srcX = Math.floor((src.width - srcSize) / 2);
@@ -82,74 +114,298 @@ export class ScreenshotService {
 
 		if (!showStats) return canvas;
 
-		// Voile sombre pour lisibilité
-		ctx.fillStyle = 'rgba(0,0,0,0.18)';
-		ctx.fillRect(0, 0, outputSize, outputSize);
-
 		const s = outputSize / 600;
 
-		const txt = (
-			text: string,
-			x: number,
-			y: number,
-			size: number,
-			color: string,
-			align: CanvasTextAlign = 'center',
-			weight = 'normal',
-		) => {
-			ctx.font = `${weight} ${Math.round(size * s)}px system-ui,sans-serif`;
-			ctx.fillStyle = color;
-			ctx.textAlign = align;
-			ctx.fillText(text, x * s, y * s);
-		};
+		// Overlay léger — la carte reste visible, les tuiles apportent le contraste
+		ctx.fillStyle = 'rgba(0,0,0,0.38)';
+		ctx.fillRect(0, 0, outputSize, outputSize);
 
-		// Header
+		const tiles = this.buildBentoTiles(data);
 
-		// Km principal
-		const kmFormatted =
-			data.totalKm >= 1000 ? `${(data.totalKm / 1000).toFixed(1).replace('.', ',')} k` : String(data.totalKm);
-		txt(kmFormatted, 300, 275, 68, '#ffffff', 'center', 'bold');
-		txt('km parcourus', 300, 308, 15, 'rgba(255,255,255,0.55)');
+		// Layout constants (base 600)
+		const MARGIN = 16 * s;
+		const GAP = 9 * s;
+		const HERO_H = 100 * s;
+		const HERO_GAP = 14 * s;
+		const ROW_H = 82 * s;
+		const HOSTNAME_RESERVE = 28 * s;
 
-		// 3 pilules stat
-		const pills = [
-			{ value: String(data.totalTrips), label: 'trajets' },
-			{ value: String(data.ridingDays), label: 'jours' },
-			{ value: `${data.longestStreak}j`, label: 'streak' },
-		];
-		const pillW = 140 * s;
-		const pillH = 52 * s;
-		const pillY = 335 * s;
-		const pillGap = 15 * s;
-		const pillsTotalW = pills.length * pillW + (pills.length - 1) * pillGap;
-		const pillsStartX = (outputSize - pillsTotalW) / 2;
+		const numRows = Math.ceil(tiles.length / 3);
+		const contentH = HERO_H + HERO_GAP + numRows * ROW_H + (numRows - 1) * GAP;
 
-		ctx.textBaseline = 'middle';
-		pills.forEach((pill, i) => {
-			const px = pillsStartX + i * (pillW + pillGap);
-			ctx.fillStyle = 'rgba(0,0,0,0.18)';
-			this.roundRect(ctx, px, pillY, pillW, pillH, 10 * s);
-			ctx.fill();
-			const cx = px + pillW / 2;
-			ctx.font = `bold ${Math.round(15 * s)}px system-ui,sans-serif`;
-			ctx.fillStyle = '#ffffff';
-			ctx.textAlign = 'center';
-			ctx.fillText(pill.value, cx, pillY + 18 * s);
-			ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
-			ctx.fillStyle = 'rgba(255,255,255,0.55)';
-			ctx.fillText(pill.label.toUpperCase(), cx, pillY + 36 * s);
-		});
-		ctx.textBaseline = 'alphabetic';
+		// Center vertically in the canvas (leaving room for hostname)
+		const usableH = outputSize - HOSTNAME_RESERVE;
+		const topY = (usableH - contentH) / 2;
 
-		// Fun facts
+		const heroY = topY;
+		const availW = outputSize - 2 * MARGIN;
+		const tileW = (availW - 2 * GAP) / 3;
 
-		// Footer
+		// Hero tile
+		this.renderHeroTile(ctx, MARGIN, heroY, availW, HERO_H, data, s);
+
+		// Regular tiles (3 per row)
+		for (let i = 0; i < tiles.length; i++) {
+			const row = Math.floor(i / 3);
+			const col = i % 3;
+			const x = MARGIN + col * (tileW + GAP);
+			const y = heroY + HERO_H + HERO_GAP + row * (ROW_H + GAP);
+			this.renderBentoTile(ctx, x, y, tileW, ROW_H, tiles[i], s);
+		}
+
+		// Hostname
 		const hostname = window.location.hostname;
 		if (!/^[\d.]+$/.test(hostname) && hostname !== 'localhost') {
-			txt(hostname, 300, 585, 11, 'rgba(255,255,255,0.3)');
+			ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
+			ctx.fillStyle = 'rgba(255,255,255,0.25)';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'alphabetic';
+			ctx.fillText(hostname, outputSize / 2, outputSize - 10 * s);
 		}
 
 		return canvas;
+	}
+
+	private renderHeroTile(
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		data: WrappedCardData,
+		s: number,
+	): void {
+		ctx.fillStyle = 'rgba(0,0,0,0.62)';
+		this.roundRect(ctx, x, y, w, h, 14 * s);
+		ctx.fill();
+		ctx.strokeStyle = 'rgba(253,179,0,0.25)';
+		ctx.lineWidth = 1 * s;
+		this.roundRect(ctx, x, y, w, h, 14 * s);
+		ctx.stroke();
+
+		const cx = x + w / 2;
+
+		let heroValue: string;
+		let heroLabel: string;
+		let subtitle: string | null = null;
+
+		if (data.mode === 'trip') {
+			heroValue = this.formatKm(data.distanceKm ?? 0);
+			heroLabel = 'km parcourus';
+			if (data.fromCity && data.toCity && data.fromCity !== data.toCity) {
+				subtitle = `${data.fromCity} → ${data.toCity}`;
+			} else if (data.fromCity) {
+				subtitle = data.fromCity;
+			}
+		} else {
+			heroValue = this.formatKm(data.totalKm);
+			heroLabel = 'km parcourus';
+			if (data.filterLabel && data.filterLabel !== 'Tout') {
+				subtitle = data.filterLabel;
+			}
+		}
+
+		const hasSubtitle = subtitle != null;
+		const valueY = hasSubtitle ? y + h * 0.3 : y + h * 0.4;
+		const labelY = hasSubtitle ? y + h * 0.57 : y + h * 0.7;
+		const subtitleY = y + h * 0.82;
+
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = `bold ${Math.round(42 * s)}px system-ui,sans-serif`;
+		ctx.fillStyle = '#fdb300';
+		ctx.fillText(heroValue, cx, valueY);
+
+		ctx.font = `${Math.round(13 * s)}px system-ui,sans-serif`;
+		ctx.fillStyle = 'rgba(255,255,255,0.55)';
+		ctx.fillText(heroLabel.toUpperCase(), cx, labelY);
+
+		if (hasSubtitle) {
+			ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
+			ctx.fillStyle = 'rgba(255,255,255,0.35)';
+			ctx.fillText(subtitle!, cx, subtitleY);
+		}
+
+		ctx.textBaseline = 'alphabetic';
+	}
+
+	private buildBentoTiles(data: WrappedCardData): BentoTile[] {
+		return data.mode === 'trip' ? this.buildTripTiles(data) : this.buildGlobalTiles(data);
+	}
+
+	private buildGlobalTiles(data: WrappedCardData): BentoTile[] {
+		const tiles: BentoTile[] = [];
+
+		// Row 1 : volume
+		tiles.push({ value: String(data.totalTrips), label: data.totalTrips === 1 ? 'trajet' : 'trajets' });
+		tiles.push({
+			value: data.longestTripKm ? `${this.formatKm(data.longestTripKm)} km` : '—',
+			label: 'trajet sans pause',
+		});
+		tiles.push({ value: String(data.countryCount), label: 'pays' });
+
+		// Row 2 : performance / exploration (avec fallbacks intelligents)
+
+		// Streak ou jour favori si pas de streak
+		const streakSlotUsedDay = data.longestStreak === 0;
+		if (data.longestStreak > 0) {
+			tiles.push({ value: `${data.longestStreak}j`, label: 'streak max' });
+		} else if (data.topDaysOfWeek?.[0]) {
+			tiles.push({ value: data.topDaysOfWeek[0], label: 'jour favori' });
+		} else {
+			tiles.push({ value: '—', label: 'streak max' });
+		}
+
+		// Meilleur mois
+		if (data.bestMonth) {
+			tiles.push({ value: this.formatKm(data.bestMonth.km), label: `km en ${data.bestMonth.label}` });
+		} else {
+			tiles.push({ value: '—', label: 'meilleur mois' });
+		}
+
+		// Régions complètes ou jour favori (en évitant de répéter le même jour que le slot streak)
+		if (data.fullRegionCount > 0) {
+			tiles.push({
+				value: String(data.fullRegionCount),
+				label: data.fullRegionCount === 1 ? 'région complète' : 'régions complètes',
+			});
+		} else {
+			const dayIdx = streakSlotUsedDay ? 1 : 0;
+			const fallbackDay = data.topDaysOfWeek?.[dayIdx];
+			tiles.push({ value: fallbackDay ?? '—', label: 'jour favori' });
+		}
+
+		// Row 3 : records
+		tiles.push({
+			value: data.maxSpeedAllKmh && data.maxSpeedAllKmh > 0 ? `${data.maxSpeedAllKmh}` : '—',
+			label: 'km/h max',
+		});
+		tiles.push({
+			value: data.bestDayKm && data.bestDayKm > 0 ? this.formatKm(data.bestDayKm) : '—',
+			label: 'km meilleur jour',
+		});
+		const rideHours = data.totalRidingHours ?? 0;
+		let rideValue = '—';
+		if (rideHours > 0) {
+			if (rideHours >= 24) {
+				const d = Math.floor(rideHours / 24);
+				const h = rideHours % 24;
+				rideValue = h > 0 ? `${d}j ${h}h` : `${d}j`;
+			} else {
+				rideValue = `${rideHours}h`;
+			}
+		}
+		tiles.push({ value: rideValue, label: 'en moto' });
+
+		return tiles;
+	}
+
+	private buildTripTiles(data: WrappedCardData): BentoTile[] {
+		// Row 1 — toujours depuis l'API
+		const tiles: BentoTile[] = [
+			{ value: data.durationStr ?? '—', label: 'durée' },
+			{ value: data.avgSpeedKmh != null ? `${data.avgSpeedKmh}` : '—', label: 'km/h moyen' },
+			{ value: data.maxSpeedKmh != null ? `${data.maxSpeedKmh}` : '—', label: 'km/h max' },
+		];
+
+		const hasComputed = data.pauseCount != null;
+
+		if (hasComputed) {
+			// Rows 2 & 3 → toujours 6 tiles supplémentaires = 9 au total
+			// Row 2 : stats de conduite (computed)
+			tiles.push({
+				value: data.maxAngle != null && data.maxAngle > 0 ? `${Math.round(data.maxAngle)}°` : '0°',
+				label: 'inclinaison max',
+			});
+			tiles.push({ value: String(data.pauseCount), label: 'pauses' });
+			tiles.push({
+				value: data.pctInTurn != null ? `${Math.round(data.pctInTurn)}` : '0',
+				label: '% en virage',
+			});
+
+			// Row 3 : vitesses virage + secours si pas de virages, date toujours en 9e
+			const hasTurnSpeeds = data.avgSpeedInTurnsKmh != null;
+			tiles.push({
+				value: hasTurnSpeeds ? `${data.avgSpeedInTurnsKmh}` : data.altMax != null ? `${data.altMax}m` : '—',
+				label: hasTurnSpeeds ? 'km/h moy virage' : 'altitude max',
+			});
+			const hasPauseTime = data.pauseTotalMin != null && data.pauseTotalMin > 0;
+			tiles.push({
+				value: hasTurnSpeeds
+					? `${data.maxSpeedInTurnsKmh}`
+					: hasPauseTime
+						? this.formatMinutes(data.pauseTotalMin!)
+						: (data.totalElapsedStr ?? '—'),
+				label: hasTurnSpeeds ? 'km/h max virage' : hasPauseTime ? 'temps de pause' : 'durée totale',
+			});
+			// 9e tile : date du trajet — toujours
+			tiles.push({
+				value: data.tripDateLabel ?? '—',
+				label: 'date du trajet',
+			});
+		} else {
+			// Positions non chargées → row 2 avec angles API (6 tiles max)
+			if (data.maxAngleFromApiDeg != null) {
+				tiles.push({ value: `${data.maxAngleFromApiDeg}°`, label: 'inclinaison max' });
+			}
+			if (data.maxLeftAngleDeg != null) {
+				tiles.push({ value: `${data.maxLeftAngleDeg}°`, label: 'virage gauche' });
+			}
+			if (data.maxRightAngleDeg != null) {
+				tiles.push({ value: `${data.maxRightAngleDeg}°`, label: 'virage droit' });
+			}
+			// Date toujours présente
+			if (data.tripDateLabel) {
+				tiles.push({ value: data.tripDateLabel, label: 'date du trajet' });
+			}
+		}
+
+		return tiles;
+	}
+
+	private formatMinutes(min: number): string {
+		const h = Math.floor(min / 60);
+		const m = Math.round(min % 60);
+		return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`;
+	}
+
+	private renderBentoTile(
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		tile: BentoTile,
+		s: number,
+	): void {
+		ctx.fillStyle = 'rgba(0,0,0,0.55)';
+		this.roundRect(ctx, x, y, w, h, 12 * s);
+		ctx.fill();
+		ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+		ctx.lineWidth = 1 * s;
+		this.roundRect(ctx, x, y, w, h, 12 * s);
+		ctx.stroke();
+
+		const cx = x + w / 2;
+
+		ctx.font = `bold ${Math.round(22 * s)}px system-ui,sans-serif`;
+		ctx.fillStyle = tile.accent ? '#fdb300' : '#ffffff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(tile.value, cx, y + h * 0.38);
+
+		ctx.font = `${Math.round(10 * s)}px system-ui,sans-serif`;
+		ctx.fillStyle = 'rgba(255,255,255,0.45)';
+		ctx.fillText(tile.label.toUpperCase(), cx, y + h * 0.7);
+
+		ctx.textBaseline = 'alphabetic';
+	}
+
+	private formatKm(km: number): string {
+		if (km >= 1000) {
+			return `${(km / 1000).toFixed(1).replace('.', ',')}k`;
+		}
+		return String(km);
 	}
 
 	private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
