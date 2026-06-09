@@ -245,6 +245,16 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	position: relative;
+}
+
+.tdp-route-measure {
+	position: fixed;
+	visibility: hidden;
+	white-space: nowrap;
+	pointer-events: none;
+	font-size: 0.87rem;
+	font-weight: 700;
 }
 
 .tdp-date {

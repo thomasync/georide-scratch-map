@@ -5,7 +5,9 @@ import {
 	EventEmitter,
 	OnChanges,
 	SimpleChanges,
+	AfterViewInit,
 	ViewChild,
+	ElementRef,
 	ChangeDetectionStrategy,
 	ChangeDetectorRef,
 	OnDestroy,
@@ -17,6 +19,8 @@ import { BaseChartDirective } from 'ng2-charts';
 import { TripWithCoords } from '../map';
 import { GeoRidePosition } from '../../../core/services/georide-api';
 import { extractCity } from '../../../core/utils/address';
+import { buildRouteLabel, dedupeCities } from '../../../core/utils/route-label';
+import { TooltipDirective } from '../../../core/utils/tooltip.directive';
 import { computeAltProfile, haversineKm } from '../../../core/utils/elevation';
 import { isLinkedTrip } from '../../../core/utils/trip-session';
 import { FuelService } from '../../../core/services/fuel.service';
@@ -44,12 +48,12 @@ interface CityEntry {
 @Component({
 	selector: 'app-trip-detail-panel',
 	standalone: true,
-	imports: [BaseChartDirective],
+	imports: [BaseChartDirective, TooltipDirective],
 	templateUrl: './trip-detail-panel.html',
 	styleUrl: './trip-detail-panel.scss',
 	changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TripDetailPanelComponent implements OnChanges, OnDestroy {
+export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDestroy {
 	private cdr = inject(ChangeDetectorRef);
 	private db = inject(DatabaseService);
 	private fuel = inject(FuelService);
@@ -110,6 +114,17 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	activeStatKey: string | null = null;
 	startLabel = '';
 	endLabel = '';
+
+	get routeLabel(): string {
+		const zoneCities = this.pauseZones.filter((z) => z.startKm >= 5 && z.city).map((z) => z.city!);
+		const pauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed?.pauseCities ?? []);
+		return buildRouteLabel(this.startLabel, this.endLabel, pauseCities) ?? this.startLabel;
+	}
+
+	@ViewChild('routeContainer') routeContainer?: ElementRef<HTMLElement>;
+	@ViewChild('routeFullMeasure') routeFullMeasure?: ElementRef<HTMLElement>;
+	routeDisplayLabel = '';
+	private routeObserver?: ResizeObserver;
 	dateLabel = '';
 	startTimeLabel = '';
 	endTimeLabel = '';
@@ -123,7 +138,15 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	private sampledPositions: GeoRidePosition[] = [];
 	private sampledKms: number[] = [];
 
-	pauseZones: { startKm: number; endKm: number; label: string; durationMin: number; lat: number; lon: number }[] = [];
+	pauseZones: {
+		startKm: number;
+		endKm: number;
+		label: string;
+		city: string | null;
+		durationMin: number;
+		lat: number;
+		lon: number;
+	}[] = [];
 
 	private precomputedPauseCount: number | null = null;
 	private precomputedPauseTotalMin: number | null = null;
@@ -413,6 +436,9 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 	}
 
 	ngOnChanges(changes: SimpleChanges): void {
+		if (changes['precomputed'] || changes['trip']) {
+			setTimeout(() => this.checkRouteOverflow());
+		}
 		if (changes['trip'] && this.trip) {
 			// Mémoriser l'indexId original uniquement si c'est un nouveau trajet (pas une mise à jour de boucle)
 			if (!this.isLoopActive) {
@@ -574,6 +600,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 						durationMin >= 60
 							? `${Math.floor(durationMin / 60)}h${String(durationMin % 60).padStart(2, '0')}`
 							: `${durationMin}min`,
+					city: extractCity(positions[i - 1].address),
 					lat: positions[i - 1].latitude, // pleine résolution
 					lon: positions[i - 1].longitude,
 				});
@@ -586,6 +613,7 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			startKm: number;
 			endKm: number;
 			label: string;
+			city: string | null;
 			durationMin: number;
 			lat: number;
 			lon: number;
@@ -752,8 +780,10 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 			maxAngleDelta: this.maxAngleDelta,
 			pauseCount: this.pauseCount,
 			pauseTotalMin: this.pauseZones.filter((z) => z.startKm >= 5).reduce((s, z) => s + z.durationMin, 0),
+			pauseCities: this.pauseZones.filter((z) => z.startKm >= 5 && z.city).map((z) => z.city!),
 		});
 
+		setTimeout(() => this.checkRouteOverflow());
 		this.cdr.markForCheck();
 	}
 
@@ -912,7 +942,55 @@ export class TripDetailPanelComponent implements OnChanges, OnDestroy {
 		};
 	}
 
+	ngAfterViewInit(): void {
+		this.routeObserver = new ResizeObserver(() => this.checkRouteOverflow());
+		if (this.routeContainer) this.routeObserver.observe(this.routeContainer.nativeElement);
+	}
+
+	private checkRouteOverflow(): void {
+		if (!this.routeContainer || !this.routeFullMeasure) return;
+		const containerWidth = this.routeContainer.nativeElement.clientWidth;
+		const label = this.computeRouteDisplayLabel(containerWidth);
+		if (label !== this.routeDisplayLabel) {
+			this.routeDisplayLabel = label;
+			this.cdr.markForCheck();
+		}
+	}
+
+	private computeRouteDisplayLabel(containerWidth: number): string {
+		const el = this.routeFullMeasure!.nativeElement;
+		const from = this.startLabel;
+		const to = this.endLabel ?? this.startLabel;
+		const zoneCities = this.pauseZones.filter((z) => z.startKm >= 5 && z.city).map((z) => z.city!);
+		const rawPauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed?.pauseCities ?? []);
+		const pauseCities = dedupeCities(from, rawPauseCities, to);
+		const full = buildRouteLabel(from, to, rawPauseCities) ?? from;
+
+		// Aucune étape intermédiaire : on mesure juste le label complet
+		if (pauseCities.length === 0) {
+			el.textContent = full;
+			return el.offsetWidth <= containerWidth ? full : full; // CSS ellipsis gère
+		}
+
+		// Essai du label complet
+		el.textContent = full;
+		if (el.offsetWidth <= containerWidth) return full;
+
+		// Réduction progressive : on garde N villes au total (fromSide depuis le départ, toSide depuis l'arrivée)
+		for (let total = pauseCities.length - 1; total >= 1; total--) {
+			const fromSide = Math.ceil(total / 2);
+			const toSide = Math.floor(total / 2);
+			const kept = [...pauseCities.slice(0, fromSide), '…', ...(toSide > 0 ? pauseCities.slice(-toSide) : [])];
+			const candidate = [from, ...kept, to].join(' → ');
+			el.textContent = candidate;
+			if (el.offsetWidth <= containerWidth) return candidate;
+		}
+
+		return `${from} → … → ${to}`;
+	}
+
 	ngOnDestroy(): void {
+		this.routeObserver?.disconnect();
 		this.stopScrollLoop();
 	}
 

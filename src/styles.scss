@@ -358,3 +358,22 @@ router-outlet {
 	font-weight: 700;
 	color: #fdb300;
 }
+
+.app-tooltip {
+	display: none;
+	position: fixed;
+	z-index: 9999;
+	max-width: calc(100vw - 16px);
+	white-space: normal;
+	background: rgba(0, 0, 0, 0.72);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	color: rgba(255, 255, 255, 0.8);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 0.4rem;
+	padding: 0.3rem 0.6rem;
+	font-size: 0.78rem;
+	font-weight: 600;
+	pointer-events: none;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}

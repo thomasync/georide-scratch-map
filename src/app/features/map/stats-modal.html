@@ -18,6 +18,15 @@
 						Tout
 					</button>
 				}
+				@if (activeTab() === 'records' && false) {
+					<button
+						class="modal-action-btn modal-action-btn--icon"
+						(click)="onSearchClick()"
+						title="Rechercher"
+					>
+						<img src="search.svg" alt="search" />
+					</button>
+				}
 				@if (activeTab() === 'discovery') {
 					<button class="modal-action-btn" (click)="togglePrompt()" title="Générer un prompt">?</button>
 				}

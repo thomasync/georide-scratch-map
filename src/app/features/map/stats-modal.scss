@@ -83,6 +83,12 @@
 	}
 }
 
+.modal-action-btn--icon img {
+	width: 0.7rem;
+	height: 0.7rem;
+	filter: invert(10%);
+}
+
 .modal-close {
 	background: none;
 	border: none;

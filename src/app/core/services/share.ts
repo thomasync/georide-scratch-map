@@ -31,6 +31,7 @@ export interface TripComputedStats {
 	maxAngleDelta: number;
 	pauseCount: number;
 	pauseTotalMin: number;
+	pauseCities: string[];
 }
 
 export interface SharePolylinePayload {
@@ -47,6 +48,7 @@ export interface SharePolylinePayload {
 	maxLeftAngle?: number | null;
 	maxRightAngle?: number | null;
 	computed?: TripComputedStats;
+	routeLabel?: string; // label affiché "ville → … → ville"
 	hex?: ShareHexPayload; // hexagones du trajet (optionnel, omis si trop grand)
 }
 

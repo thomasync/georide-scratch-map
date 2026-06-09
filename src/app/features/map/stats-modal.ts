@@ -503,6 +503,10 @@ export class StatsModalComponent implements OnChanges, OnInit {
 		return this.expandedKey() === `${deptCode}-${cityName}`;
 	}
 
+	onSearchClick(): void {
+		alert('Search');
+	}
+
 	togglePrompt(): void {
 		this.showPrompt.set(!this.showPrompt());
 		if (this.showPrompt()) {

@@ -68,6 +68,7 @@ import {
 	CO2_KG_PER_L,
 } from '../../core/utils/fuel-consumption';
 import { buildSessions } from '../../core/utils/trip-session';
+import { buildRouteLabel } from '../../core/utils/route-label';
 import { TripDetailPanelComponent } from './trip-detail-panel/trip-detail-panel';
 import {
 	ShareHexPayload,
@@ -1225,6 +1226,9 @@ export class Map {
 				([lat, lon]) => [Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5] as [number, number],
 			);
 
+			const fromCity = this.extractCity(trip.niceStartAddress ?? trip.startAddress) ?? null;
+			const toCity = this.extractCity(trip.niceEndAddress ?? trip.endAddress) ?? null;
+			const pauseCities = this.lastTripComputedStats?.pauseCities ?? [];
 			const basePayload: SharePolylinePayload = {
 				coords,
 				dist: trip.distance,
@@ -1239,6 +1243,7 @@ export class Map {
 				maxLeftAngle: trip.maxLeftAngle ?? undefined,
 				maxRightAngle: trip.maxRightAngle ?? undefined,
 				computed: this.lastTripComputedStats ?? undefined,
+				routeLabel: buildRouteLabel(fromCity, toCity, pauseCities) ?? undefined,
 			};
 			const stats: ShareStats = { t: this.shareLoopTripCount || 1, k: Math.round((trip.distance ?? 0) / 1000) };
 
@@ -1523,6 +1528,7 @@ export class Map {
 			maxAngle: computed?.maxAngleDelta ?? undefined,
 			pauseCount: computed?.pauseCount ?? undefined,
 			pauseTotalMin: computed?.pauseTotalMin ?? undefined,
+			pauseCities: computed?.pauseCities ?? [],
 			altMax: computed?.altMax ?? undefined,
 			pctInTurn: computed?.pctInTurn ?? null,
 			avgSpeedInTurnsKmh: computed?.avgSpeedInTurns ?? null,

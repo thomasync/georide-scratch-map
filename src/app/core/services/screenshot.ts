@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import maplibregl from 'maplibre-gl';
+import { buildRouteLabel } from '../utils/route-label';
 
 export interface ScreenshotStats {
 	items: { value: string; label: string }[];
@@ -36,6 +37,7 @@ export interface WrappedCardData {
 	maxSpeedInTurnsKmh?: number | null;
 	fromCity?: string | null;
 	toCity?: string | null;
+	pauseCities?: string[];
 	altMax?: number;
 	// Angles API (sans positions)
 	maxAngleFromApiDeg?: number | null;
@@ -248,11 +250,7 @@ export class ScreenshotService {
 		if (data.mode === 'trip') {
 			heroValue = this.formatKm(data.distanceKm ?? 0);
 			heroLabel = 'km parcourus';
-			if (data.fromCity && data.toCity && data.fromCity !== data.toCity) {
-				subtitle = `${data.fromCity} → ${data.toCity}`;
-			} else if (data.fromCity) {
-				subtitle = data.fromCity;
-			}
+			subtitle = buildRouteLabel(data.fromCity, data.toCity, data.pauseCities ?? []);
 		} else {
 			heroValue = this.formatKm(data.totalKm);
 			heroLabel = 'km parcourus';
@@ -279,10 +277,26 @@ export class ScreenshotService {
 		if (hasSubtitle) {
 			ctx.font = `${Math.round(11 * s)}px system-ui,sans-serif`;
 			ctx.fillStyle = 'rgba(0,0,0,0.38)';
-			ctx.fillText(subtitle!, cx, subtitleY);
+			ctx.fillText(this.fitSubtitle(ctx, subtitle!, data, w - 32 * s), cx, subtitleY);
 		}
 
 		ctx.textBaseline = 'alphabetic';
+	}
+
+	private fitSubtitle(ctx: CanvasRenderingContext2D, full: string, data: WrappedCardData, maxW: number): string {
+		if (ctx.measureText(full).width <= maxW) return full;
+		const from = data.fromCity;
+		const to = data.toCity ?? data.fromCity;
+		if (!from) return full;
+		const pauses = data.pauseCities ?? [];
+		for (let total = pauses.length - 1; total >= 1; total--) {
+			const fromSide = Math.ceil(total / 2);
+			const toSide = Math.floor(total / 2);
+			const kept = [...pauses.slice(0, fromSide), '…', ...(toSide > 0 ? pauses.slice(-toSide) : [])];
+			const candidate = [from, ...kept, to].join(' → ');
+			if (ctx.measureText(candidate).width <= maxW) return candidate;
+		}
+		return to && to !== from ? `${from} → … → ${to}` : `${from} → …`;
 	}
 
 	private buildBentoTiles(data: WrappedCardData): BentoTile[] {

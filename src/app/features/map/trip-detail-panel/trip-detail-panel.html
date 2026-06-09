@@ -74,7 +74,10 @@
 	<div class="tdp-card tdp-card--info">
 		<div class="tdp-header">
 			<div class="tdp-header-left">
-				<div class="tdp-route">{{ startLabel }} → {{ endLabel }}</div>
+				<div class="tdp-route" #routeContainer [tooltip]="routeDisplayLabel !== routeLabel ? routeLabel : ''">
+					<span #routeFullMeasure class="tdp-route-measure">{{ routeLabel }}</span>
+					{{ routeDisplayLabel || routeLabel }}
+				</div>
 				<div class="tdp-date">
 					<button class="tdp-date-btn" (click)="filterDate.emit(trip!.startTime.substring(0, 10))">
 						{{ dateLabel }}
