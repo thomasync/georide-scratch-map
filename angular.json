@@ -68,7 +68,18 @@
 					"defaultConfiguration": "development"
 				},
 				"test": {
-					"builder": "@angular/build:unit-test"
+					"builder": "@angular/build:unit-test",
+					"options": {
+						"setupFiles": ["src/test/setup.ts"],
+						"coverageExclude": [
+							"src/app/features/map/map.ts",
+							"src/app/features/map/trip-detail-panel/**",
+							"src/app/core/services/screenshot.ts",
+							"src/test/**",
+							"src/main.ts"
+						],
+						"coverageReporters": ["text-summary", "html"]
+					}
 				}
 			}
 		}

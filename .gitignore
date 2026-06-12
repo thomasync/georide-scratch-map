@@ -48,3 +48,8 @@ src/environments/environment.ts
 src/environments/environment.prod.ts
 
 deploy.sh
+
+# Tests
+coverage/
+test-results/
+playwright-report/

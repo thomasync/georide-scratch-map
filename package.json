@@ -8,7 +8,10 @@
 		"build": "ng build",
 		"watch": "ng build --watch --configuration development",
 		"format": "prettier --write \"src/**/*.{ts,html,scss,css,json}\"",
-		"prepare": "husky"
+		"prepare": "husky",
+		"test": "ng test --watch=false",
+		"test:watch": "ng test",
+		"test:coverage": "ng test --coverage --watch=false"
 	},
 	"private": true,
 	"packageManager": "npm@11.8.0",
@@ -31,6 +34,8 @@
 		"@angular/build": "^22.0.1",
 		"@angular/cli": "^22.0.1",
 		"@angular/compiler-cli": "^22.0.1",
+		"@vitest/coverage-v8": "^4.1.5",
+		"fake-indexeddb": "^6.2.5",
 		"husky": "^9.1.7",
 		"jsdom": "^27.1.0",
 		"prettier": "^3.8.3",
