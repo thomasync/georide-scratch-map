@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth';
@@ -9,12 +10,14 @@ import { ThemeService } from '../../core/services/theme';
 	selector: 'app-login',
 	imports: [FormsModule, RouterLink],
 	templateUrl: './login.html',
+	changeDetection: ChangeDetectionStrategy.Eager,
 	styleUrl: './login.scss',
 })
 export class Login {
 	private auth = inject(AuthService);
 	private router = inject(Router);
 	private logger = inject(LoggerService);
+	private destroyRef = inject(DestroyRef);
 	theme = inject(ThemeService);
 
 	constructor() {
@@ -50,16 +53,19 @@ export class Login {
 		this.loading.set(true);
 		this.error.set('');
 
-		this.auth.login(this.email(), this.password()).subscribe({
-			next: () => {
-				this.logger.log('Login', 'login success, navigating to /map');
-				this.router.navigate(['/map']);
-			},
-			error: (err) => {
-				this.logger.error('Login', 'login failed', err);
-				this.error.set('Identifiants incorrects');
-				this.loading.set(false);
-			},
-		});
+		this.auth
+			.login(this.email(), this.password())
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe({
+				next: () => {
+					this.logger.log('Login', 'login success, navigating to /map');
+					this.router.navigate(['/map']);
+				},
+				error: (err) => {
+					this.logger.error('Login', 'login failed', err);
+					this.error.set('Identifiants incorrects');
+					this.loading.set(false);
+				},
+			});
 	}
 }

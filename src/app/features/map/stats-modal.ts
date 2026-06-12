@@ -1,16 +1,15 @@
 import {
 	Component,
-	Input,
-	Output,
-	EventEmitter,
 	signal,
-	ViewChild,
 	ElementRef,
 	OnChanges,
 	SimpleChanges,
 	ChangeDetectionStrategy,
 	inject,
 	OnInit,
+	input,
+	output,
+	viewChild,
 } from '@angular/core';
 import { countryFlag as getCountryFlag } from '../../core/data/countries';
 import { FuelService } from '../../core/services/fuel.service';
@@ -253,15 +252,15 @@ type Tab = 'discovery' | 'distances' | 'speeds' | 'turns' | 'pauses' | 'fuel' | 
 export class StatsModalComponent implements OnChanges, OnInit {
 	private fuel = inject(FuelService);
 	private logger = inject(LoggerService);
-	@Input() data: StatsModalData | null = null;
-	@Input() isFiltered = false;
-	@Output() close = new EventEmitter<void>();
-	@Output() selectTrip = new EventEmitter<string>();
-	@Output() applyFilter = new EventEmitter<FilterAction>();
-	@Output() fuelTypeChange = new EventEmitter<string>();
+	readonly data = input<StatsModalData | null>(null);
+	readonly isFiltered = input(false);
+	readonly close = output<void>();
+	readonly selectTrip = output<string>();
+	readonly applyFilter = output<FilterAction>();
+	readonly fuelTypeChange = output<string>();
 
-	@ViewChild('modalBody') modalBody?: ElementRef<HTMLElement>;
-	@ViewChild('promptTextarea') promptTextarea?: ElementRef<HTMLTextAreaElement>;
+	readonly modalBody = viewChild<ElementRef<HTMLElement>>('modalBody');
+	readonly promptTextarea = viewChild<ElementRef<HTMLTextAreaElement>>('promptTextarea');
 
 	activeTab = signal<Tab>('records');
 	selectedMonthIdx = signal(0);
@@ -344,7 +343,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	ngOnChanges(changes: SimpleChanges): void {
 		if (changes['data']) {
 			this.selectedMonthIdx.set(0);
-			if (this.data?.fuelStats.fuelType === this.fuelType()) {
+			if (this.data()?.fuelStats.fuelType === this.fuelType()) {
 				this.fuelLoading.set(false);
 			}
 			this.expandedCountries.set(new Set());
@@ -420,7 +419,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 		this.expandedCountryDepts.set(null);
 		if (!wasOpen) {
 			setTimeout(() => {
-				const body = this.modalBody?.nativeElement;
+				const body = this.modalBody()?.nativeElement;
 				if (!body) return;
 				const bodyRect = body.getBoundingClientRect();
 				const elRect = headerEl.getBoundingClientRect();
@@ -483,9 +482,10 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	deptsByCountry(): { countryCode: string; countryName: string; depts: StatsModalData['depts'] }[] {
-		if (!this.data) return [];
+		const data = this.data();
+		if (!data) return [];
 		const groups = new Map<string, StatsModalData['depts']>();
-		for (const dept of this.data.depts) {
+		for (const dept of data.depts) {
 			const c = dept.country ?? 'FR';
 			if (!groups.has(c)) groups.set(c, []);
 			groups.get(c)!.push(dept);
@@ -511,8 +511,10 @@ export class StatsModalComponent implements OnChanges, OnInit {
 		this.showPrompt.set(!this.showPrompt());
 		if (this.showPrompt()) {
 			setTimeout(() => {
-				if (this.modalBody) this.modalBody.nativeElement.scrollTop = 0;
-				if (this.promptTextarea) this.promptTextarea.nativeElement.select();
+				const modalBody = this.modalBody();
+				if (modalBody) modalBody.nativeElement.scrollTop = 0;
+				const promptTextarea = this.promptTextarea();
+				if (promptTextarea) promptTextarea.nativeElement.select();
 			}, 0);
 		}
 	}
@@ -527,9 +529,10 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	private rideCountries(): string {
-		if (!this.data) return '';
+		const data = this.data();
+		if (!data) return '';
 		const pctByCountry: Record<string, number> = {};
-		for (const dept of this.data.depts) {
+		for (const dept of data.depts) {
 			if (dept.pct < 10) continue;
 			const c = dept.country ?? 'FR';
 			pctByCountry[c] = (pctByCountry[c] ?? 0) + dept.pct;
@@ -541,12 +544,13 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	buildPrompt(): string {
-		if (!this.data) return '';
+		const data = this.data();
+		if (!data) return '';
 		const countries = this.rideCountries();
 		const lines: string[] = [];
-		if (this.data.homeCity) {
+		if (data.homeCity) {
 			lines.push(
-				`Je fais de la moto en ${countries}, je pars principalement de ${this.data.homeCity}. Nous sommes en ${this.currentSeason()}.`,
+				`Je fais de la moto en ${countries}, je pars principalement de ${data.homeCity}. Nous sommes en ${this.currentSeason()}.`,
 			);
 			lines.push('');
 		} else {
@@ -554,10 +558,10 @@ export class StatsModalComponent implements OnChanges, OnInit {
 			lines.push('');
 		}
 		lines.push('Voici les villes et villages où je me suis arrêté (pas juste traversé) par département :');
-		for (const dept of this.data.depts) {
+		for (const dept of data.depts) {
 			if (dept.cities.length === 0) continue;
 			const cityList = dept.cities
-				.filter((c) => c.name !== this.data!.homeCity)
+				.filter((c) => c.name !== data.homeCity)
 				.map((c) => `${c.name} (${c.count} fois, dernière visite : ${c.dates[0]})`)
 				.join(', ');
 			if (!cityList) continue;
@@ -575,7 +579,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 			.filter(Boolean)
 			.join(' et ');
 		lines.push(
-			`Propose-moi une belle boucle à faire en moto${this.data.homeCity ? ` depuis ${this.data.homeCity}` : ''} que je n'ai pas encore explorée, d'une durée totale d'environ ${hours}h (≈ ${km} km de route, avec ${pauseDetail}). Cols, routes panoramiques, villages pittoresques. Découpe la boucle en ${stops} étapes courtes et${mealBreaks > 0 ? ` ${mealBreaks} étape${mealBreaks > 1 ? 's' : ''} repas,` : ''} avec une pause à chaque étape. Génère une image de mise en page suivante : sur le côté gauche un aperçu visuel de la boucle complète (tracé de l'itinéraire sur fond de carte ou illustration), et sur le reste de l'image toutes les étapes affichées sous forme de vignettes avec pour chacune une photo emblématique du lieu, le nom du lieu, la distance depuis l'étape précédente en km et la durée de route. Ambiance ${this.currentSeason()}, style photographique, lumière naturelle.`,
+			`Propose-moi une belle boucle à faire en moto${data.homeCity ? ` depuis ${data.homeCity}` : ''} que je n'ai pas encore explorée, d'une durée totale d'environ ${hours}h (≈ ${km} km de route, avec ${pauseDetail}). Cols, routes panoramiques, villages pittoresques. Découpe la boucle en ${stops} étapes courtes et${mealBreaks > 0 ? ` ${mealBreaks} étape${mealBreaks > 1 ? 's' : ''} repas,` : ''} avec une pause à chaque étape. Génère une image de mise en page suivante : sur le côté gauche un aperçu visuel de la boucle complète (tracé de l'itinéraire sur fond de carte ou illustration), et sur le reste de l'image toutes les étapes affichées sous forme de vignettes avec pour chacune une photo emblématique du lieu, le nom du lieu, la distance depuis l'étape précédente en km et la durée de route. Ambiance ${this.currentSeason()}, style photographique, lumière naturelle.`,
 		);
 		return lines.join('\n');
 	}
@@ -596,19 +600,19 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	maxDayKm(): number {
-		return this.data?.distanceStats.topDays[0]?.km ?? 1;
+		return this.data()?.distanceStats.topDays[0]?.km ?? 1;
 	}
 
 	maxMonthKm(): number {
-		return Math.max(...(this.data?.distanceStats.byMonth.map((m) => m.km) ?? [1]));
+		return Math.max(...(this.data()?.distanceStats.byMonth.map((m) => m.km) ?? [1]));
 	}
 
 	maxSeasonKm(): number {
-		return Math.max(...(this.data?.distanceStats.bySeason.map((s) => s.km) ?? [1]));
+		return Math.max(...(this.data()?.distanceStats.bySeason.map((s) => s.km) ?? [1]));
 	}
 
 	maxTopTripKm(): number {
-		return this.data?.distanceStats.topTrips[0]?.km ?? 1;
+		return this.data()?.distanceStats.topTrips[0]?.km ?? 1;
 	}
 
 	private combinedScore<T extends { maxKmh: number; maxLeanDeg: number }>(items: T[]): (item: T) => number {
@@ -618,7 +622,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	sortedDepts(): TurnDeptStat[] {
-		const depts = this.data?.turnStats.topDepts ?? [];
+		const depts = this.data()?.turnStats.topDepts ?? [];
 		if (this.turnsViewMode() === 'angle') return [...depts].sort((a, b) => b.maxLeanDeg - a.maxLeanDeg);
 		if (this.turnsViewMode() === 'both') {
 			const score = this.combinedScore(depts);
@@ -628,7 +632,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	sortedCities(): TurnCityStat[] {
-		const cities = this.data?.turnStats.topCities ?? [];
+		const cities = this.data()?.turnStats.topCities ?? [];
 		if (this.turnsViewMode() === 'angle') return [...cities].sort((a, b) => b.maxLeanDeg - a.maxLeanDeg);
 		if (this.turnsViewMode() === 'both') {
 			const score = this.combinedScore(cities);
@@ -694,7 +698,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	// Taille + letter-spacing calculés ensemble pour garantir l'effet escalier
 	dayStyles(): { fontSize: string; letterSpacing: string }[] {
-		const days = this.data?.records.topDaysOfWeek ?? [];
+		const days = this.data()?.records.topDaysOfWeek ?? [];
 		const n = days.length;
 		if (n === 0) return [];
 		const MIN = 0.7;
@@ -720,8 +724,9 @@ export class StatsModalComponent implements OnChanges, OnInit {
 
 	// Retourne les stats essence pour le type et la taille du réservoir sélectionnés
 	fuelData(): FuelStats | null {
-		if (!this.data) return null;
-		const base = this.data.fuelStats;
+		const data = this.data();
+		if (!data) return null;
+		const base = data.fuelStats;
 		const ft = this.fuelType();
 		const tank = this.tankSize();
 		if (base.fuelType === ft && base.tankSizeL === tank) return base;
@@ -740,11 +745,11 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	maxFuelMonthCost(): number {
-		return Math.max(...(this.data?.fuelStats.byMonth.map((m) => m.cost ?? 0) ?? [1]), 1);
+		return Math.max(...(this.data()?.fuelStats.byMonth.map((m) => m.cost ?? 0) ?? [1]), 1);
 	}
 
 	maxFuelMonthLiters(): number {
-		return Math.max(...(this.data?.fuelStats.byMonth.map((m) => m.litersConsumed) ?? [1]), 1);
+		return Math.max(...(this.data()?.fuelStats.byMonth.map((m) => m.litersConsumed) ?? [1]), 1);
 	}
 
 	selectMonth(idx: number): void {
@@ -778,7 +783,7 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	}
 
 	recentRecordsExist(): boolean {
-		const r = this.data?.recentStats;
+		const r = this.data()?.recentStats;
 		if (!r) return false;
 		return (
 			this.isRecent(r.speedRecordDate) ||

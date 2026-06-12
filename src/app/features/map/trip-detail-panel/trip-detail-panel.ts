@@ -1,18 +1,18 @@
 import {
 	Component,
-	Input,
-	Output,
-	EventEmitter,
 	OnChanges,
 	SimpleChanges,
 	AfterViewInit,
-	ViewChild,
 	ElementRef,
 	ChangeDetectionStrategy,
 	ChangeDetectorRef,
 	OnDestroy,
 	inject,
+	input,
+	output,
+	viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ChartData, ChartOptions, Chart, ActiveElement, ChartEvent } from 'chart.js';
 import { LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler, Tooltip } from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
@@ -47,7 +47,6 @@ interface CityEntry {
 
 @Component({
 	selector: 'app-trip-detail-panel',
-	standalone: true,
 	imports: [BaseChartDirective, TooltipDirective],
 	templateUrl: './trip-detail-panel.html',
 	styleUrl: './trip-detail-panel.scss',
@@ -58,31 +57,37 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	private db = inject(DatabaseService);
 	private fuel = inject(FuelService);
 
-	@Input() trip: TripWithCoords | null = null;
-	@Input() positions: GeoRidePosition[] | null = null;
-	@Input() allTrips: TripWithCoords[] = [];
-	@Input() activePauseIdx: number | null = null;
-	@Input() closeable = true;
-	@Input() precomputed: TripComputedStats | null = null;
-	@Input() availableMonths: string[] = [];
+	readonly trip = input<TripWithCoords | null>(null);
+	readonly positions = input<GeoRidePosition[] | null>(null);
+	readonly allTrips = input<TripWithCoords[]>([]);
+	readonly activePauseIdx = input<number | null>(null);
+	readonly closeable = input(true);
+	readonly precomputed = input<TripComputedStats | null>(null);
+	readonly availableMonths = input<string[]>([]);
 
-	@Output() hoverPosition = new EventEmitter<[number, number] | null>();
-	@Output() closePanelEvent = new EventEmitter<void>();
-	@Output() statsComputed = new EventEmitter<TripComputedStats>();
-	@Output() showFullDayEvent = new EventEmitter<TripWithCoords[]>();
-	@Output() flyToPosition = new EventEmitter<[number, number]>();
-	@Output() snapToPosition = new EventEmitter<[number, number]>();
-	@Output() showPauseChips = new EventEmitter<{ lat: number; lon: number; label: string }[]>();
-	@Output() followPosition = new EventEmitter<[number, number] | null>();
-	@Output() fitTripEvent = new EventEmitter<void>();
-	@Output() selectTripEvent = new EventEmitter<TripWithCoords>();
-	@Output() filterDate = new EventEmitter<string>(); // YYYY-MM-DD
-	@Output() showStatPoints = new EventEmitter<[number, number][]>();
-	@Output() animatePath = new EventEmitter<[number, number][]>();
-	@Output() showCitySegment = new EventEmitter<[number, number][]>();
-	@Output() fitCitySegment = new EventEmitter<[number, number][]>();
+	readonly hoverPosition = output<[number, number] | null>();
+	readonly closePanelEvent = output<void>();
+	readonly statsComputed = output<TripComputedStats>();
+	readonly showFullDayEvent = output<TripWithCoords[]>();
+	readonly flyToPosition = output<[number, number]>();
+	readonly snapToPosition = output<[number, number]>();
+	readonly showPauseChips = output<
+		{
+			lat: number;
+			lon: number;
+			label: string;
+		}[]
+	>();
+	readonly followPosition = output<[number, number] | null>();
+	readonly fitTripEvent = output<void>();
+	readonly selectTripEvent = output<TripWithCoords>();
+	readonly filterDate = output<string>(); // YYYY-MM-DD
+	readonly showStatPoints = output<[number, number][]>();
+	readonly animatePath = output<[number, number][]>();
+	readonly showCitySegment = output<[number, number][]>();
+	readonly fitCitySegment = output<[number, number][]>();
 
-	@ViewChild(BaseChartDirective) chartRef?: BaseChartDirective;
+	readonly chartRef = viewChild(BaseChartDirective);
 
 	// Stats
 	distanceKm = 0;
@@ -117,12 +122,12 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 
 	get routeLabel(): string {
 		const zoneCities = this.pauseZones.filter((z) => z.startKm >= 5 && z.city).map((z) => z.city!);
-		const pauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed?.pauseCities ?? []);
+		const pauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed()?.pauseCities ?? []);
 		return buildRouteLabel(this.startLabel, this.endLabel, pauseCities) ?? this.startLabel;
 	}
 
-	@ViewChild('routeContainer') routeContainer?: ElementRef<HTMLElement>;
-	@ViewChild('routeFullMeasure') routeFullMeasure?: ElementRef<HTMLElement>;
+	readonly routeContainer = viewChild<ElementRef<HTMLElement>>('routeContainer');
+	readonly routeFullMeasure = viewChild<ElementRef<HTMLElement>>('routeFullMeasure');
 	routeDisplayLabel = '';
 	private routeObserver?: ResizeObserver;
 	dateLabel = '';
@@ -172,7 +177,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	onStatToggle(key: string, points: ([number, number] | null)[]): void {
-		if (!this.closeable) return;
+		if (!this.closeable()) return;
 		const filtered = points.filter((p): p is [number, number] => p !== null);
 		if (!filtered.length) return;
 
@@ -199,7 +204,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	onPausesClick(): void {
-		if (!this.closeable || !this.ptPauses.length) return;
+		if (!this.closeable() || !this.ptPauses.length) return;
 		// Toggle : si déjà actif → tout masquer
 		if (this.pausePointsVisible) {
 			this.pausePointsVisible = false;
@@ -253,7 +258,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		this.showStatPoints.emit([pt]);
 
 		// Si on vient d'une pause précédente et qu'on a les positions → suivre le polyline
-		const positions = this.positions;
+		const positions = this.positions();
 		if (fromIdx !== null && positions?.length) {
 			const fromPt = this.ptPauses[fromIdx];
 			const path = this.extractPath(fromPt, pt, positions);
@@ -356,8 +361,8 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 
 	get allLoopDisplayTrips(): { trip: TripWithCoords; state: 'active' | 'excluded' | 'suggested' }[] {
 		const active = this.dayTrips.map((t) => ({ trip: t, state: 'active' as const }));
-		const excluded = this.allTrips
-			.filter((t) => this.excludedTripIds.has(t.indexId) && t.trackerId === this.trip?.trackerId)
+		const excluded = this.allTrips()
+			.filter((t) => this.excludedTripIds.has(t.indexId) && t.trackerId === this.trip()?.trackerId)
 			.map((t) => ({ trip: t, state: 'excluded' as const }));
 		const suggested = this.suggestedTrips
 			.filter((t) => !this.excludedTripIds.has(t.indexId))
@@ -427,19 +432,22 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	};
 
 	constructor() {
-		this.db.kvGet<boolean>('tdp_show_all_stats').subscribe((v) => {
-			if (v !== null) {
-				this.showAllStats = v;
-				this.cdr.markForCheck();
-			}
-		});
+		this.db
+			.kvGet<boolean>('tdp_show_all_stats')
+			.pipe(takeUntilDestroyed())
+			.subscribe((v) => {
+				if (v !== null) {
+					this.showAllStats = v;
+					this.cdr.markForCheck();
+				}
+			});
 	}
 
 	ngOnChanges(changes: SimpleChanges): void {
 		if (changes['precomputed'] || changes['trip']) {
 			setTimeout(() => this.checkRouteOverflow());
 		}
-		if (changes['trip'] && this.trip) {
+		if (changes['trip'] && this.trip()) {
 			// Mémoriser l'indexId original uniquement si c'est un nouveau trajet (pas une mise à jour de boucle)
 			if (!this.isLoopActive) {
 			}
@@ -466,21 +474,22 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 			this.windowStartKm = 0;
 			this.chartTotalKm = 0;
 		}
-		if (changes['positions'] || (changes['trip'] && this.positions)) {
+		if (changes['positions'] || (changes['trip'] && this.positions())) {
 			this.buildChartData();
 		}
 		// Ne pas recalculer la boucle quand le mergedTrip arrive en mode boucle actif
 		if (changes['allTrips'] || (changes['trip'] && !this.isLoopActive)) {
 			this.updateDayTrips();
 		}
-		if (changes['activePauseIdx'] && this.activePauseIdx !== null && this.pausePointsVisible) {
-			this.currentPauseIdx = this.activePauseIdx;
+		const activePauseIdx = this.activePauseIdx();
+		if (changes['activePauseIdx'] && activePauseIdx !== null && this.pausePointsVisible) {
+			this.currentPauseIdx = activePauseIdx;
 			this.cdr.markForCheck();
 		}
 	}
 
 	private updateTripMeta(): void {
-		const t = this.trip!;
+		const t = this.trip()!;
 		this.distanceKm = Math.round(t.distance / 1000);
 		this.durationStr = formatDuration(t.duration);
 		this.avgSpeedKmh = Math.round(t.averageSpeed * 1.852);
@@ -505,8 +514,8 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		this.estimatedCost = null;
 		const month = t.startTime.substring(0, 7);
 		this.fuel.getPrefs().then(({ fuelType }) =>
-			this.fuel.getPriceOrNearest(fuelType, month, this.availableMonths).then((price) => {
-				if (price !== null && this.trip?.indexId === t.indexId) {
+			this.fuel.getPriceOrNearest(fuelType, month, this.availableMonths()).then((price) => {
+				if (price !== null && this.trip()?.indexId === t.indexId) {
 					this.estimatedCost = Math.round(this.estimatedLiters! * price * 100) / 100;
 					this.cdr.markForCheck();
 				}
@@ -515,20 +524,21 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	private buildChartData(): void {
-		const positions = this.positions;
+		const positions = this.positions();
 		// null = still loading; [] = loaded but no data
 		if (!positions?.length) {
-			this.positionsLoading = this.positions === null && this.trip != null;
-			if (this.positions !== null && this.precomputed) {
-				this.altMin = this.precomputed.altMin;
-				this.altMax = this.precomputed.altMax;
-				this.elevGain = this.precomputed.elevGain;
-				this.pctInTurn = this.precomputed.pctInTurn;
-				this.avgSpeedInTurns = this.precomputed.avgSpeedInTurns;
-				this.maxSpeedInTurns = this.precomputed.maxSpeedInTurns;
-				this.maxAngleDelta = this.precomputed.maxAngleDelta;
-				this.precomputedPauseCount = this.precomputed.pauseCount || null;
-				this.precomputedPauseTotalMin = this.precomputed.pauseTotalMin || null;
+			this.positionsLoading = this.positions() === null && this.trip() != null;
+			const precomputed = this.precomputed();
+			if (this.positions() !== null && precomputed) {
+				this.altMin = precomputed.altMin;
+				this.altMax = precomputed.altMax;
+				this.elevGain = precomputed.elevGain;
+				this.pctInTurn = precomputed.pctInTurn;
+				this.avgSpeedInTurns = precomputed.avgSpeedInTurns;
+				this.maxSpeedInTurns = precomputed.maxSpeedInTurns;
+				this.maxAngleDelta = precomputed.maxAngleDelta;
+				this.precomputedPauseCount = precomputed.pauseCount || null;
+				this.precomputedPauseTotalMin = precomputed.pauseTotalMin || null;
 			}
 			this.cdr.markForCheck();
 			return;
@@ -788,15 +798,16 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	private updateDayTrips(): void {
-		if (!this.trip) {
+		const trip = this.trip();
+		if (!trip) {
 			this.dayTrips = [];
 			return;
 		}
-		const tid = this.trip.trackerId;
+		const tid = trip.trackerId;
 		// Fenêtre ±24h autour du trajet cliqué : couvre les boucles à cheval sur minuit
 		// sans chaîner tous les trajets de la semaine (comme en mode démo)
-		const clickedMs = new Date(this.trip.startTime).getTime();
-		const sameTrackerTrips = this.allTrips.filter(
+		const clickedMs = new Date(trip.startTime).getTime();
+		const sameTrackerTrips = this.allTrips().filter(
 			(t) =>
 				t.trackerId === tid &&
 				!this.excludedTripIds.has(t.indexId) &&
@@ -804,8 +815,8 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		);
 
 		// BFS : part du trajet cliqué et propage transitivement
-		const found = new Set<string>([this.trip.indexId]);
-		const queue: TripWithCoords[] = [this.trip];
+		const found = new Set<string>([trip.indexId]);
+		const queue: TripWithCoords[] = [trip];
 		while (queue.length > 0) {
 			const current = queue.shift()!;
 			for (const candidate of sameTrackerTrips) {
@@ -819,7 +830,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		this.dayTrips = sameTrackerTrips.filter((t) => found.has(t.indexId));
 
 		// Suggestions : trajets hors boucle active, liés à un trajet actif avec 3h-8h de pause
-		const allTrackerTrips = this.allTrips.filter((t) => t.trackerId === tid);
+		const allTrackerTrips = this.allTrips().filter((t) => t.trackerId === tid);
 		const suggestedIds = new Set<string>();
 		for (const activeTrip of this.dayTrips) {
 			for (const candidate of allTrackerTrips) {
@@ -944,12 +955,14 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 
 	ngAfterViewInit(): void {
 		this.routeObserver = new ResizeObserver(() => this.checkRouteOverflow());
-		if (this.routeContainer) this.routeObserver.observe(this.routeContainer.nativeElement);
+		const routeContainer = this.routeContainer();
+		if (routeContainer) this.routeObserver.observe(routeContainer.nativeElement);
 	}
 
 	private checkRouteOverflow(): void {
-		if (!this.routeContainer || !this.routeFullMeasure) return;
-		const containerWidth = this.routeContainer.nativeElement.clientWidth;
+		const routeContainer = this.routeContainer();
+		if (!routeContainer || !this.routeFullMeasure()) return;
+		const containerWidth = routeContainer.nativeElement.clientWidth;
 		const label = this.computeRouteDisplayLabel(containerWidth);
 		if (label !== this.routeDisplayLabel) {
 			this.routeDisplayLabel = label;
@@ -958,11 +971,11 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	private computeRouteDisplayLabel(containerWidth: number): string {
-		const el = this.routeFullMeasure!.nativeElement;
+		const el = this.routeFullMeasure()!.nativeElement;
 		const from = this.startLabel;
 		const to = this.endLabel ?? this.startLabel;
 		const zoneCities = this.pauseZones.filter((z) => z.startKm >= 5 && z.city).map((z) => z.city!);
-		const rawPauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed?.pauseCities ?? []);
+		const rawPauseCities = zoneCities.length > 0 ? zoneCities : (this.precomputed()?.pauseCities ?? []);
 		const pauseCities = dedupeCities(from, rawPauseCities, to);
 		const full = buildRouteLabel(from, to, rawPauseCities) ?? from;
 
@@ -1087,7 +1100,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		if (!lat || !lon) return null;
 		let bestCity: string | null = null;
 		let bestDist = 2; // km seuil
-		for (const t of this.allTrips) {
+		for (const t of this.allTrips()) {
 			for (const [addr, alat, alon] of [
 				[t.niceStartAddress ?? t.startAddress, t.startLat, t.startLon],
 				[t.niceEndAddress ?? t.endAddress, t.endLat, t.endLon],
@@ -1116,7 +1129,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 		const clamped = Math.max(0, Math.min(newStartKm, this.chartTotalKm - this.WINDOW_KM));
 		if (Math.abs(clamped - this.windowStartKm) < 0.01) return;
 		this.windowStartKm = clamped;
-		const chart = this.chartRef?.chart;
+		const chart = this.chartRef()?.chart;
 		if (!chart?.options?.scales?.['x']) return;
 		(chart.options.scales['x'] as any).min = this.windowStartKm;
 		(chart.options.scales['x'] as any).max = this.windowStartKm + this.WINDOW_KM;
@@ -1157,16 +1170,17 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	onChartTouchMove(e: TouchEvent): void {
-		if (!this.chartRef?.chart?.chartArea) return;
+		const chartRef = this.chartRef();
+		if (!chartRef?.chart?.chartArea) return;
 		const deltaX = e.touches[0].clientX - this.touchStartX;
-		const chartWidth = this.chartRef.chart.chartArea.width;
+		const chartWidth = chartRef.chart.chartArea.width;
 		const kmPerPx = this.WINDOW_KM / chartWidth;
 		this.scrollChartTo(this.touchStartWindowKm - deltaX * kmPerPx);
 		e.preventDefault();
 	}
 
 	onCityEnter(city: CityEntry): void {
-		const positions = this.positions;
+		const positions = this.positions();
 		if (!positions?.length) return;
 		const t0 = new Date(city.firstTime).getTime();
 		const t1 = new Date(city.lastTime).getTime();
@@ -1184,7 +1198,7 @@ export class TripDetailPanelComponent implements OnChanges, AfterViewInit, OnDes
 	}
 
 	onCityClick(city: CityEntry): void {
-		const positions = this.positions;
+		const positions = this.positions();
 		if (!positions?.length) {
 			this.flyToPosition.emit([city.lat, city.lon]);
 			return;

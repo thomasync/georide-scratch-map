@@ -79,7 +79,7 @@
 					{{ routeDisplayLabel || routeLabel }}
 				</div>
 				<div class="tdp-date">
-					<button class="tdp-date-btn" (click)="filterDate.emit(trip!.startTime.substring(0, 10))">
+					<button class="tdp-date-btn" (click)="filterDate.emit(trip()!.startTime.substring(0, 10))">
 						{{ dateLabel }}
 					</button>
 					<span class="tdp-date-time">· {{ startTimeLabel }} → {{ endTimeLabel }}</span>
@@ -217,7 +217,7 @@
 					</div>
 				}
 			}
-			@if (closeable) {
+			@if (closeable()) {
 				<button class="tdp-close" (click)="onClose()" title="Fermer">✕</button>
 			}
 		</div>

@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { DatabaseService } from './database';
 
@@ -8,7 +8,7 @@ const KV_PREFIX = 'fuel_price_';
 
 @Injectable({ providedIn: 'root' })
 export class FuelService {
-	constructor(private db: DatabaseService) {}
+	private db = inject(DatabaseService);
 
 	async getPrice(fuelType: string, month: string): Promise<number | null> {
 		const currentMonth = new Date().toISOString().substring(0, 7);

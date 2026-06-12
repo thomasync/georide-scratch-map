@@ -1,4 +1,5 @@
-import { Component, EventEmitter, inject, Output } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy, output } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MapSettingsService, MapSettings } from '../../core/services/map-settings';
@@ -6,7 +7,6 @@ import { DatabaseService } from '../../core/services/database';
 
 @Component({
 	selector: 'app-dev-box',
-	standalone: true,
 	imports: [CommonModule, FormsModule],
 	template: `
 		<div class="dev-box" [class.collapsed]="!isExpanded">
@@ -56,6 +56,7 @@ import { DatabaseService } from '../../core/services/database';
 			</div>
 		</div>
 	`,
+	changeDetection: ChangeDetectionStrategy.Eager,
 	styles: [
 		`
 			.dev-box {
@@ -207,12 +208,15 @@ export class DevBoxComponent {
 	isExpanded = false;
 
 	constructor() {
-		this.db.kvGet<boolean>('dev_box_expanded').subscribe((v) => {
-			if (v !== null) this.isExpanded = v;
-		});
+		this.db
+			.kvGet<boolean>('dev_box_expanded')
+			.pipe(takeUntilDestroyed())
+			.subscribe((v) => {
+				if (v !== null) this.isExpanded = v;
+			});
 	}
 
-	@Output() simulateNewTrip = new EventEmitter<void>();
+	readonly simulateNewTrip = output<void>();
 
 	toggleExpand(): void {
 		this.isExpanded = !this.isExpanded;

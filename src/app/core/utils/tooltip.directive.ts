@@ -1,10 +1,10 @@
-import { Directive, Input, HostListener, OnDestroy, ElementRef, inject } from '@angular/core';
+import { Directive, HostListener, OnDestroy, ElementRef, inject, input } from '@angular/core';
 
 const LONG_PRESS_MS = 500;
 
-@Directive({ selector: '[tooltip]', standalone: true })
+@Directive({ selector: '[tooltip]' })
 export class TooltipDirective implements OnDestroy {
-	@Input() tooltip = '';
+	readonly tooltip = input('');
 
 	private el = inject(ElementRef<HTMLElement>);
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -26,7 +26,7 @@ export class TooltipDirective implements OnDestroy {
 
 	@HostListener('mouseenter', ['$event'])
 	onMouseEnter(event: MouseEvent): void {
-		if (!this.tooltip) return;
+		if (!this.tooltip()) return;
 		this.showTooltip(event.currentTarget as HTMLElement);
 	}
 
@@ -39,7 +39,7 @@ export class TooltipDirective implements OnDestroy {
 
 	@HostListener('touchstart', ['$event'])
 	onTouchStart(event: TouchEvent): void {
-		if (!this.tooltip) return;
+		if (!this.tooltip()) return;
 		this.clearTimers();
 		const anchor = this.el.nativeElement;
 		this.longPressTimer = setTimeout(() => {
@@ -70,7 +70,7 @@ export class TooltipDirective implements OnDestroy {
 
 	private showTooltip(anchor: HTMLElement): void {
 		const el = TooltipDirective.getEl();
-		el.textContent = this.tooltip;
+		el.textContent = this.tooltip();
 		el.style.display = 'block';
 		this.position(anchor);
 	}

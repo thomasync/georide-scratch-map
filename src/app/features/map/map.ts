@@ -9,11 +9,13 @@ import {
 	isDevMode,
 	signal,
 	untracked,
+	ChangeDetectionStrategy,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import maplibregl from 'maplibre-gl';
 import { Observable, catchError, concat, defer, forkJoin, map as rxMap, of, reduce, switchMap, tap } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MergedTrip } from '../../core/models/trip';
 import { GeorideApiService } from '../../core/services/georide-api';
 import { H3Data, H3Resolution, H3Service, resolutionForZoom } from '../../core/services/h3';
@@ -153,6 +155,7 @@ const DATE_FILTER_PRESETS: DateFilterPreset[] = [
 	selector: 'app-map',
 	imports: [DevBoxComponent, StatsModalComponent, TripDetailPanelComponent, NgTemplateOutlet],
 	templateUrl: './map.html',
+	changeDetection: ChangeDetectionStrategy.Eager,
 	styleUrl: './map.scss',
 })
 export class Map {
@@ -917,12 +920,14 @@ export class Map {
 		requestAnimationFrame(() => this.logger.log('Recap', `open in ${Math.round(performance.now() - t0)}ms`));
 		// Charger les positions si pas encore fait, puis mettre à jour les stats
 		if (this.allTripsWithCoords.some((t) => !t.positions?.length)) {
-			this.syncTripAltitudes().subscribe({
-				next: () => {
-					this.statsModalData.set(this.computeStatsData());
-				},
-				error: () => {},
-			});
+			this.syncTripAltitudes()
+				.pipe(takeUntilDestroyed(this.destroyRef))
+				.subscribe({
+					next: () => {
+						this.statsModalData.set(this.computeStatsData());
+					},
+					error: () => {},
+				});
 		}
 	}
 
@@ -3035,15 +3040,17 @@ export class Map {
 				),
 			);
 		if (!loaders.length) return;
-		forkJoin(loaders).subscribe((fcs) => {
-			this.departments = { type: 'FeatureCollection', features: fcs.flatMap((fc) => fc.features) };
-			if (this.map?.getSource('depts-outline')) {
-				(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(this.departments);
-			}
-			this.currentMode = null;
-			this.currentResolution = null;
-			this.updateView();
-		});
+		forkJoin(loaders)
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe((fcs) => {
+				this.departments = { type: 'FeatureCollection', features: fcs.flatMap((fc) => fc.features) };
+				if (this.map?.getSource('depts-outline')) {
+					(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(this.departments);
+				}
+				this.currentMode = null;
+				this.currentResolution = null;
+				this.updateView();
+			});
 	}
 
 	private applyShareDeptData(depts: Array<[string, number, string]>): void {
@@ -3071,82 +3078,84 @@ export class Map {
 			return;
 		}
 
-		forkJoin(loaders).subscribe((fcs) => {
-			const allFeatures = fcs.flatMap((fc) => fc.features);
-			this.departments = { type: 'FeatureCollection', features: allFeatures };
+		forkJoin(loaders)
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe((fcs) => {
+				const allFeatures = fcs.flatMap((fc) => fc.features);
+				this.departments = { type: 'FeatureCollection', features: allFeatures };
 
-			// Injecter pct directement — evite toute recomputation H3
-			this.enrichedDepts = {
-				type: 'FeatureCollection',
-				features: allFeatures.map((f) => {
-					// Estimer la taille du dept (proxy pour h3Total) via son bounding box
-					const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
-					const flat =
-						geom.type === 'Polygon'
-							? geom.coordinates[0]
-							: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
-					let minLon = Infinity,
-						maxLon = -Infinity,
-						minLat = Infinity,
-						maxLat = -Infinity;
-					for (const [lon, lat] of flat as number[][]) {
-						if (lon < minLon) minLon = lon;
-						if (lon > maxLon) maxLon = lon;
-						if (lat < minLat) minLat = lat;
-						if (lat > maxLat) maxLat = lat;
+				// Injecter pct directement — evite toute recomputation H3
+				this.enrichedDepts = {
+					type: 'FeatureCollection',
+					features: allFeatures.map((f) => {
+						// Estimer la taille du dept (proxy pour h3Total) via son bounding box
+						const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+						const flat =
+							geom.type === 'Polygon'
+								? geom.coordinates[0]
+								: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
+						let minLon = Infinity,
+							maxLon = -Infinity,
+							minLat = Infinity,
+							maxLat = -Infinity;
+						for (const [lon, lat] of flat as number[][]) {
+							if (lon < minLon) minLon = lon;
+							if (lon > maxLon) maxLon = lon;
+							if (lat < minLat) minLat = lat;
+							if (lat > maxLat) maxLat = lat;
+						}
+						const approxArea = (maxLon - minLon) * (maxLat - minLat);
+						// Calibration : ~0.5° × 0.5° (petit dept) ≈ h3Total 10 ; ~2° × 2° (grand) ≈ h3Total 40
+						const h3Total = Math.min(60, Math.max(5, Math.round(approxArea * 40)));
+						return {
+							...f,
+							properties: {
+								...f.properties,
+								pct: pctMap[`${f.properties?.['country']}_${f.properties?.['code']}`] ?? 0,
+								h3Total,
+								h3Visited: 0,
+								tripCount: 0,
+							},
+						};
+					}),
+				};
+
+				// cellsByResolution vide mais non-null pour passer le check de addLayers()
+				const res = this.mapSettings.deptResolution() as H3Resolution;
+				this.cellsByResolution = { [res]: { counts: {}, cellToIndices: {} } };
+				this.hexagonCount.set(0);
+				this.tripCount.set(0);
+				this.totalKm.set(0);
+				this.allTripsWithCoords = [];
+				this.tripsWithCoords = [];
+
+				this.addLayers();
+				this.currentMode = null;
+				this.currentResolution = null;
+				this.updateView();
+
+				const visitedFeatures = allFeatures.filter(
+					(f) => (pctMap[`${f.properties?.['country']}_${f.properties?.['code']}`] ?? 0) > 0,
+				);
+				if (visitedFeatures.length > 0) {
+					const bounds = new maplibregl.LngLatBounds();
+					for (const f of visitedFeatures) {
+						const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+						const allCoords: GeoJSON.Position[] =
+							geom.type === 'Polygon'
+								? geom.coordinates[0]
+								: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
+						for (const [lng, lat] of allCoords) bounds.extend([lng, lat]);
 					}
-					const approxArea = (maxLon - minLon) * (maxLat - minLat);
-					// Calibration : ~0.5° × 0.5° (petit dept) ≈ h3Total 10 ; ~2° × 2° (grand) ≈ h3Total 40
-					const h3Total = Math.min(60, Math.max(5, Math.round(approxArea * 40)));
-					return {
-						...f,
-						properties: {
-							...f.properties,
-							pct: pctMap[`${f.properties?.['country']}_${f.properties?.['code']}`] ?? 0,
-							h3Total,
-							h3Visited: 0,
-							tripCount: 0,
-						},
-					};
-				}),
-			};
-
-			// cellsByResolution vide mais non-null pour passer le check de addLayers()
-			const res = this.mapSettings.deptResolution() as H3Resolution;
-			this.cellsByResolution = { [res]: { counts: {}, cellToIndices: {} } };
-			this.hexagonCount.set(0);
-			this.tripCount.set(0);
-			this.totalKm.set(0);
-			this.allTripsWithCoords = [];
-			this.tripsWithCoords = [];
-
-			this.addLayers();
-			this.currentMode = null;
-			this.currentResolution = null;
-			this.updateView();
-
-			const visitedFeatures = allFeatures.filter(
-				(f) => (pctMap[`${f.properties?.['country']}_${f.properties?.['code']}`] ?? 0) > 0,
-			);
-			if (visitedFeatures.length > 0) {
-				const bounds = new maplibregl.LngLatBounds();
-				for (const f of visitedFeatures) {
-					const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
-					const allCoords: GeoJSON.Position[] =
-						geom.type === 'Polygon'
-							? geom.coordinates[0]
-							: (geom.coordinates as GeoJSON.Position[][][]).flat(2);
-					for (const [lng, lat] of allCoords) bounds.extend([lng, lat]);
+					this.map!.fitBounds(bounds, { padding: 40, maxZoom: 7.5, animate: false });
 				}
-				this.map!.fitBounds(bounds, { padding: 40, maxZoom: 7.5, animate: false });
-			}
-			// Bloquer le zoom au seuil dept pour éviter le passage en mode hex (sans données hex)
-			const deptMaxZoom = this.isMobile
-				? this.mapSettings.deptModeZoomThresholdMob()
-				: this.mapSettings.deptModeZoomThresholdDesk();
-			this.map!.setMaxZoom(deptMaxZoom);
-			this.hideShareLoading();
-		});
+				// Bloquer le zoom au seuil dept pour éviter le passage en mode hex (sans données hex)
+				const deptMaxZoom = this.isMobile
+					? this.mapSettings.deptModeZoomThresholdMob()
+					: this.mapSettings.deptModeZoomThresholdDesk();
+				this.map!.setMaxZoom(deptMaxZoom);
+				this.hideShareLoading();
+			});
 	}
 
 	private applySharePolylineData(poly: SharePolylinePayload): void {
@@ -3291,40 +3300,48 @@ export class Map {
 		}
 
 		if (!this.isDemo) {
-			this.user.loadFromDb().subscribe(() => {
-				if (!this.user.firstName()) this.user.fetchAndStore().subscribe();
-			});
+			this.user
+				.loadFromDb()
+				.pipe(takeUntilDestroyed(this.destroyRef))
+				.subscribe(() => {
+					if (!this.user.firstName()) this.user.fetchAndStore().subscribe();
+				});
 		}
 
 		if (this.isDemo) {
 			let demoInitDone = false;
-			this.demo.load().subscribe({
-				next: (data) => {
-					if (!demoInitDone) {
-						demoInitDone = true;
-						this.applyDemoData(data);
-					} else {
-						// 2ème émission : mettre à jour les départements avec tous les pays
-						this.logger.log(
-							'Map',
-							`[demo] all countries loaded: ${data.departments.features.length} depts`,
-						);
-						this.departments = data.departments;
-						this.enrichedDepts = null;
-						this.h3.invalidateEnrichedCache(); // invalide le cache H3 créé avec seulement la France
-						if (this.map?.getSource('depts-outline')) {
-							(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(data.departments);
+			this.demo
+				.load()
+				.pipe(takeUntilDestroyed(this.destroyRef))
+				.subscribe({
+					next: (data) => {
+						if (!demoInitDone) {
+							demoInitDone = true;
+							this.applyDemoData(data);
+						} else {
+							// 2ème émission : mettre à jour les départements avec tous les pays
+							this.logger.log(
+								'Map',
+								`[demo] all countries loaded: ${data.departments.features.length} depts`,
+							);
+							this.departments = data.departments;
+							this.enrichedDepts = null;
+							this.h3.invalidateEnrichedCache(); // invalide le cache H3 créé avec seulement la France
+							if (this.map?.getSource('depts-outline')) {
+								(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(
+									data.departments,
+								);
+							}
+							this.updateVisitedNeighboringCountries();
+							this.currentMode = null;
+							this.updateView();
 						}
-						this.updateVisitedNeighboringCountries();
-						this.currentMode = null;
-						this.updateView();
-					}
-				},
-				error: () => {
-					this.error.set('Impossible de charger les départements');
-					this.loading.set(false);
-				},
-			});
+					},
+					error: () => {
+						this.error.set('Impossible de charger les départements');
+						this.loading.set(false);
+					},
+				});
 			return;
 		}
 
@@ -3572,6 +3589,7 @@ export class Map {
 						}),
 					);
 				}),
+				takeUntilDestroyed(this.destroyRef),
 			)
 			.subscribe({
 				next: async ({ allTrips, departments, remainingCountries }) => {
@@ -3647,43 +3665,50 @@ export class Map {
 									),
 								),
 							),
-						).subscribe((remainingFcs) => {
-							const allFeatures = [
-								...(this.departments?.features ?? []),
-								...remainingFcs.flatMap((fc) => fc.features),
-							];
-							this.departments = { type: 'FeatureCollection', features: allFeatures };
-							this.enrichedDepts = null;
-							this.h3.invalidateEnrichedCache();
-							if (this.map?.getSource('depts-outline')) {
-								(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(
-									this.departments,
-								);
-							}
-							this.updateVisitedNeighboringCountries();
-							this.currentMode = null;
-							this.updateView();
-							this.logger.log('Map', `all countries loaded: ${allFeatures.length} depts`);
-						});
+						)
+							.pipe(takeUntilDestroyed(this.destroyRef))
+							.subscribe((remainingFcs) => {
+								const allFeatures = [
+									...(this.departments?.features ?? []),
+									...remainingFcs.flatMap((fc) => fc.features),
+								];
+								this.departments = { type: 'FeatureCollection', features: allFeatures };
+								this.enrichedDepts = null;
+								this.h3.invalidateEnrichedCache();
+								if (this.map?.getSource('depts-outline')) {
+									(this.map.getSource('depts-outline') as maplibregl.GeoJSONSource).setData(
+										this.departments,
+									);
+								}
+								this.updateVisitedNeighboringCountries();
+								this.currentMode = null;
+								this.updateView();
+								this.logger.log('Map', `all countries loaded: ${allFeatures.length} depts`);
+							});
 					}
 
 					// Si les positions ont déjà été chargées (timestamp en IDB),
 					// recharger silencieusement en arrière-plan + invalider les caches de modes
-					this.db.kvGet<number>('positions_sync_ts').subscribe((ts) => {
-						if (ts === null) return;
-						this.tripAltProfiles = {};
-						this.colsCellCache = {};
-						this.turnsCellCache = {};
-						this.speedCellCache = {};
-						this.speedCellStatsCache = {};
-						this.tripSegmentsCache = {};
-						this.syncTripAltitudes().subscribe({
-							next: (profiles) => {
-								this.tripAltProfiles = profiles;
-							},
-							error: () => {},
+					this.db
+						.kvGet<number>('positions_sync_ts')
+						.pipe(takeUntilDestroyed(this.destroyRef))
+						.subscribe((ts) => {
+							if (ts === null) return;
+							this.tripAltProfiles = {};
+							this.colsCellCache = {};
+							this.turnsCellCache = {};
+							this.speedCellCache = {};
+							this.speedCellStatsCache = {};
+							this.tripSegmentsCache = {};
+							this.syncTripAltitudes()
+								.pipe(takeUntilDestroyed(this.destroyRef))
+								.subscribe({
+									next: (profiles) => {
+										this.tripAltProfiles = profiles;
+									},
+									error: () => {},
+								});
 						});
-					});
 				},
 				error: (err) => {
 					this.logger.error('Map', 'API error', err);
@@ -5236,20 +5261,22 @@ export class Map {
 
 		this.elevationLoadingLabel.set('Analyse du relief…');
 		this.elevationLoading.set(true);
-		this.syncTripAltitudes().subscribe({
-			next: (profiles) => {
-				this.tripAltProfiles = profiles;
-				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
-				this.elevationLoading.set(false);
-				this.colsMode.set(true);
-				this.showCols();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
-			},
-			error: (err) => {
-				this.logger.error('Elevation', 'sync failed', err);
-				this.elevationLoading.set(false);
-			},
-		});
+		this.syncTripAltitudes()
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe({
+				next: (profiles) => {
+					this.tripAltProfiles = profiles;
+					this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
+					this.elevationLoading.set(false);
+					this.colsMode.set(true);
+					this.showCols();
+					if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
+				},
+				error: (err) => {
+					this.logger.error('Elevation', 'sync failed', err);
+					this.elevationLoading.set(false);
+				},
+			});
 	}
 
 	private syncTripAltitudes(): Observable<Record<string, AltProfile>> {
@@ -5543,19 +5570,21 @@ export class Map {
 
 		this.elevationLoadingLabel.set('Analyse des virages…');
 		this.elevationLoading.set(true);
-		this.syncTripAltitudes().subscribe({
-			next: () => {
-				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
-				this.elevationLoading.set(false);
-				this.turnsMode.set(true);
-				this.showTurns();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
-			},
-			error: (err) => {
-				this.logger.error('Turns', 'sync failed', err);
-				this.elevationLoading.set(false);
-			},
-		});
+		this.syncTripAltitudes()
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe({
+				next: () => {
+					this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
+					this.elevationLoading.set(false);
+					this.turnsMode.set(true);
+					this.showTurns();
+					if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
+				},
+				error: (err) => {
+					this.logger.error('Turns', 'sync failed', err);
+					this.elevationLoading.set(false);
+				},
+			});
 	}
 
 	private showTurns(): void {
@@ -5651,7 +5680,9 @@ export class Map {
 		if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
 		// Charger les positions si pas encore fait
 		if (this.allTripsWithCoords.some((t) => !t.positions?.length)) {
-			this.syncTripAltitudes().subscribe({ error: () => {} });
+			this.syncTripAltitudes()
+				.pipe(takeUntilDestroyed(this.destroyRef))
+				.subscribe({ error: () => {} });
 		}
 	}
 
@@ -5701,19 +5732,21 @@ export class Map {
 
 		this.elevationLoadingLabel.set('Analyse des vitesses…');
 		this.elevationLoading.set(true);
-		this.syncTripAltitudes().subscribe({
-			next: () => {
-				this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
-				this.elevationLoading.set(false);
-				this.speedMode.set(true);
-				this.showSpeed();
-				if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
-			},
-			error: (err) => {
-				this.logger.error('Speed', 'sync failed', err);
-				this.elevationLoading.set(false);
-			},
-		});
+		this.syncTripAltitudes()
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe({
+				next: () => {
+					this.db.kvSet('positions_sync_ts', Date.now()).subscribe();
+					this.elevationLoading.set(false);
+					this.speedMode.set(true);
+					this.showSpeed();
+					if (!this.isMobile && (this.map?.getZoom() ?? 0) < 13) this.viewMyTrips();
+				},
+				error: (err) => {
+					this.logger.error('Speed', 'sync failed', err);
+					this.elevationLoading.set(false);
+				},
+			});
 	}
 
 	private showSpeed(): void {
@@ -6050,7 +6083,10 @@ export class Map {
 		if (trip.positions?.length) {
 			render(null);
 		} else {
-			this.db.getTripPositions(trip.indexId).subscribe((positions) => render(positions));
+			this.db
+				.getTripPositions(trip.indexId)
+				.pipe(takeUntilDestroyed(this.destroyRef))
+				.subscribe((positions) => render(positions));
 		}
 	}
 
@@ -6419,60 +6455,62 @@ export class Map {
 
 		// Charger les positions de tous les trajets, puis fusionner pour le panel
 		const posObs = sorted.map((t) => (t.positions?.length ? of(t.positions) : this.db.getTripPositions(t.indexId)));
-		forkJoin(posObs).subscribe((allPos) => {
-			const mergedPositions = (allPos as (GeoRidePosition[] | null)[])
-				.flat()
-				.filter((p): p is GeoRidePosition => p != null)
-				.sort((a, b) => a.fixtime.localeCompare(b.fixtime));
+		forkJoin(posObs)
+			.pipe(takeUntilDestroyed(this.destroyRef))
+			.subscribe((allPos) => {
+				const mergedPositions = (allPos as (GeoRidePosition[] | null)[])
+					.flat()
+					.filter((p): p is GeoRidePosition => p != null)
+					.sort((a, b) => a.fixtime.localeCompare(b.fixtime));
 
-			const first = sorted[0];
-			const last = sorted[sorted.length - 1];
-			const totalDist = sorted.reduce((s, t) => s + t.distance, 0);
-			const totalDur = sorted.reduce((s, t) => s + t.duration, 0);
-			const avgSpeed =
-				totalDist > 0 ? sorted.reduce((s, t) => s + t.averageSpeed * t.distance, 0) / totalDist : 0;
+				const first = sorted[0];
+				const last = sorted[sorted.length - 1];
+				const totalDist = sorted.reduce((s, t) => s + t.distance, 0);
+				const totalDur = sorted.reduce((s, t) => s + t.duration, 0);
+				const avgSpeed =
+					totalDist > 0 ? sorted.reduce((s, t) => s + t.averageSpeed * t.distance, 0) / totalDist : 0;
 
-			const mergedTrip: TripWithCoords = {
-				...first,
-				distance: totalDist,
-				duration: totalDur,
-				averageSpeed: Math.round(avgSpeed),
-				maxSpeed: Math.max(...sorted.map((t) => t.maxSpeed)),
-				startTime: first.startTime,
-				endTime: last.endTime,
-				startLat: first.startLat,
-				startLon: first.startLon,
-				endLat: last.endLat,
-				endLon: last.endLon,
-				startAddress: first.startAddress,
-				niceStartAddress: first.niceStartAddress,
-				endAddress: last.endAddress,
-				niceEndAddress: last.niceEndAddress,
-				coords: sorted.flatMap((t) => t.coords),
-				positions: mergedPositions,
-			};
+				const mergedTrip: TripWithCoords = {
+					...first,
+					distance: totalDist,
+					duration: totalDur,
+					averageSpeed: Math.round(avgSpeed),
+					maxSpeed: Math.max(...sorted.map((t) => t.maxSpeed)),
+					startTime: first.startTime,
+					endTime: last.endTime,
+					startLat: first.startLat,
+					startLon: first.startLon,
+					endLat: last.endLat,
+					endLon: last.endLon,
+					startAddress: first.startAddress,
+					niceStartAddress: first.niceStartAddress,
+					endAddress: last.endAddress,
+					niceEndAddress: last.niceEndAddress,
+					coords: sorted.flatMap((t) => t.coords),
+					positions: mergedPositions,
+				};
 
-			this.selectedTripForPanel.set(mergedTrip);
-			this.selectedTripPositions.set(mergedPositions.length ? mergedPositions : []);
+				this.selectedTripForPanel.set(mergedTrip);
+				this.selectedTripPositions.set(mergedPositions.length ? mergedPositions : []);
 
-			// Remettre à jour les polylignes avec les vraies positions maintenant chargées
-			if (mergedPositions.length && this.map?.getSource('trip-line')) {
-				const updatedFeatures = sorted.map((t) => ({
-					type: 'Feature' as const,
-					geometry: {
-						type: 'LineString' as const,
-						coordinates: t.positions?.length
-							? t.positions.map((p) => [p.longitude, p.latitude] as [number, number])
-							: t.coords.map(([lat, lng]) => [lng, lat] as [number, number]),
-					},
-					properties: {},
-				}));
-				(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
-					type: 'FeatureCollection',
-					features: updatedFeatures,
-				});
-			}
-		});
+				// Remettre à jour les polylignes avec les vraies positions maintenant chargées
+				if (mergedPositions.length && this.map?.getSource('trip-line')) {
+					const updatedFeatures = sorted.map((t) => ({
+						type: 'Feature' as const,
+						geometry: {
+							type: 'LineString' as const,
+							coordinates: t.positions?.length
+								? t.positions.map((p) => [p.longitude, p.latitude] as [number, number])
+								: t.coords.map(([lat, lng]) => [lng, lat] as [number, number]),
+						},
+						properties: {},
+					}));
+					(this.map.getSource('trip-line') as maplibregl.GeoJSONSource).setData({
+						type: 'FeatureCollection',
+						features: updatedFeatures,
+					});
+				}
+			});
 	}
 
 	private pointInFeature(lng: number, lat: number, feature: GeoJSON.Feature): boolean {

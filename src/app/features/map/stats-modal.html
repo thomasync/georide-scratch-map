@@ -9,7 +9,7 @@
 		<div class="modal-header">
 			<span class="modal-title">Récapitulatif</span>
 			<div class="modal-header-actions">
-				@if (isFiltered) {
+				@if (isFiltered()) {
 					<button
 						class="modal-filter-reset"
 						(click)="applyFilter.emit({ type: 'reset' })"
@@ -48,7 +48,7 @@
 			<button class="tab" [class.active]="activeTab() === 'fuel'" (click)="setTab('fuel')">Essence</button>
 		</div>
 
-		@if (data) {
+		@if (data(); as data) {
 			<div
 				class="modal-body"
 				#modalBody
