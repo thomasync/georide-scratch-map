@@ -13,6 +13,8 @@ Whenever a feature or fix is implemented, **run the tests before concluding** an
 
 Husky hooks already run `npm test` on commit and `npm run e2e` on push, but check for regressions *while* working, not only at commit time.
 
+For manual exploratory QA in a real browser (driven via Chrome DevTools), follow the scenarios in `e2e/AI-CHECKLIST.md`.
+
 ## Environment
 
 - **Node ≥ 24.15 required** (Angular 22 CLI). Before any `npm`/`ng` command, load nvm:
