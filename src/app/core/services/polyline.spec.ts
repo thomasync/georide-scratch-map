@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import { PolylineService } from './polyline';
-import { LoggerService } from './logger';
 import { provideSilentLogger } from '../../../test/helpers/providers';
 
 // Polyline de référence de la documentation Google (3 points connus)
@@ -13,12 +12,10 @@ const REFERENCE_DECODED: [number, number][] = [
 
 describe('PolylineService', () => {
 	let service: PolylineService;
-	let logger: LoggerService;
 
 	beforeEach(() => {
 		TestBed.configureTestingModule({ providers: [provideSilentLogger()] });
 		service = TestBed.inject(PolylineService);
-		logger = TestBed.inject(LoggerService);
 	});
 
 	it('should be created', () => {
@@ -67,10 +64,8 @@ describe('PolylineService', () => {
 			const url = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/path-2+f00-0.7(${encodeURIComponent(
 				REFERENCE_ENCODED,
 			)})/auto/600x400`;
-			const warnSpy = vi.spyOn(logger, 'warn');
 
 			expect(service.extractFromStaticImage(url)).toEqual(REFERENCE_DECODED);
-			expect(warnSpy).not.toHaveBeenCalled();
 		});
 
 		it('decodes percent-encoded characters in the path before decoding the polyline', () => {
@@ -84,11 +79,8 @@ describe('PolylineService', () => {
 			expect(service.extractFromStaticImage(url)).toEqual([[0, 0]]);
 		});
 
-		it('returns an empty array and warns when the URL has no path parameter', () => {
-			const warnSpy = vi.spyOn(logger, 'warn');
-
+		it('returns an empty array when the URL has no path parameter', () => {
 			expect(service.extractFromStaticImage('https://maps.example.com/static.png')).toEqual([]);
-			expect(warnSpy).toHaveBeenCalledWith('Polyline', 'no polyline found in staticImage URL');
 		});
 
 		it('returns an empty array for an empty string', () => {

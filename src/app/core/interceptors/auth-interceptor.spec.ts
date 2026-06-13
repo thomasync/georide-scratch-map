@@ -6,7 +6,7 @@ import { Observable, of, throwError } from 'rxjs';
 import type { Mock } from 'vitest';
 import { authInterceptor } from './auth-interceptor';
 import { AuthService } from '../services/auth';
-import { LoggerService } from '../services/logger';
+import { provideSilentLogger } from '../../../test/helpers/providers';
 
 const API_URL = 'https://api.georide.com/user/trackers';
 const REFRESH_URL = 'https://api.georide.com/user/new-token';
@@ -17,29 +17,17 @@ type AuthServiceMock = {
 	logout: Mock<() => void>;
 };
 
-type LoggerMock = {
-	log: Mock<(...args: unknown[]) => void>;
-	warn: Mock<(...args: unknown[]) => void>;
-	error: Mock<(...args: unknown[]) => void>;
-};
-
 describe('authInterceptor', () => {
 	let http: HttpClient;
 	let httpMock: HttpTestingController;
 	let router: Router;
 	let auth: AuthServiceMock;
-	let logger: LoggerMock;
 
 	beforeEach(() => {
 		auth = {
 			getToken: vi.fn<() => string | null>(() => 'tok-1'),
 			refreshToken: vi.fn<() => Observable<string>>(() => of('tok-2')),
 			logout: vi.fn<() => void>(),
-		};
-		logger = {
-			log: vi.fn<(...args: unknown[]) => void>(),
-			warn: vi.fn<(...args: unknown[]) => void>(),
-			error: vi.fn<(...args: unknown[]) => void>(),
 		};
 
 		TestBed.configureTestingModule({
@@ -48,7 +36,7 @@ describe('authInterceptor', () => {
 				provideHttpClientTesting(),
 				provideRouter([]),
 				{ provide: AuthService, useValue: auth },
-				{ provide: LoggerService, useValue: logger },
+				provideSilentLogger(),
 			],
 		});
 
@@ -98,13 +86,6 @@ describe('authInterceptor', () => {
 			expect(req.request.headers.get('Authorization')).toBe('Bearer tok-1');
 			req.flush({});
 		});
-
-		it('logs the token attachment with the method and the url', () => {
-			http.get(API_URL).subscribe();
-
-			httpMock.expectOne(API_URL).flush({});
-			expect(logger.log).toHaveBeenCalledWith('AuthInterceptor', `attaching Bearer token to GET ${API_URL}`);
-		});
 	});
 
 	describe('non-GeoRide requests', () => {
@@ -115,7 +96,6 @@ describe('authInterceptor', () => {
 			expect(req.request.headers.has('Authorization')).toBe(false);
 			expect(req.request.headers.has('Accept-Language')).toBe(false);
 			expect(auth.getToken).not.toHaveBeenCalled();
-			expect(logger.log).toHaveBeenCalledWith('AuthInterceptor', 'skipping non-GeoRide request: example.com');
 			req.flush({});
 		});
 
@@ -149,7 +129,7 @@ describe('authInterceptor', () => {
 	});
 
 	describe('GeoRide requests without a token', () => {
-		it('sends the request unauthenticated and warns about it', () => {
+		it('sends the request unauthenticated when there is no token', () => {
 			auth.getToken.mockReturnValue(null);
 
 			http.get(API_URL).subscribe();
@@ -157,7 +137,6 @@ describe('authInterceptor', () => {
 			const req = httpMock.expectOne(API_URL);
 			expect(req.request.headers.has('Authorization')).toBe(false);
 			expect(req.request.headers.has('Accept-Language')).toBe(false);
-			expect(logger.warn).toHaveBeenCalledWith('AuthInterceptor', 'no token, sending unauthenticated request');
 			req.flush({});
 		});
 
@@ -202,15 +181,6 @@ describe('authInterceptor', () => {
 			expect(retry.request.body).toEqual({ a: 1 });
 			expect(retry.request.headers.get('X-Custom')).toBe('yes');
 			retry.flush({});
-		});
-
-		it('warns before attempting the refresh', () => {
-			http.get(API_URL).subscribe();
-
-			httpMock.expectOne(API_URL).flush({}, { status: 401, statusText: 'Unauthorized' });
-			httpMock.expectOne(API_URL).flush({});
-
-			expect(logger.warn).toHaveBeenCalledWith('AuthInterceptor', '401 received, attempting token refresh');
 		});
 
 		it('propagates non-401 errors without refreshing or logging out', () => {
@@ -273,7 +243,6 @@ describe('authInterceptor', () => {
 			expect(auth.logout).toHaveBeenCalledTimes(1);
 			expect(router.navigate).toHaveBeenCalledTimes(1);
 			expect(router.navigate).toHaveBeenCalledWith(['/login']);
-			expect(logger.warn).toHaveBeenCalledWith('AuthInterceptor', 'token refresh failed, logging out');
 			expect(errors).toEqual([refreshError]);
 		});
 

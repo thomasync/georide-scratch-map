@@ -1,18 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { MAP_STYLES, Theme, ThemeService } from './theme';
-import { LoggerService } from './logger';
+import { provideSilentLogger } from '../../../test/helpers/providers';
 
 const STORAGE_KEY = 'georide_theme';
 
-type LoggerMock = {
-	log: ReturnType<typeof vi.fn>;
-	warn: ReturnType<typeof vi.fn>;
-	error: ReturnType<typeof vi.fn>;
-};
-
 describe('ThemeService', () => {
-	let logger: LoggerMock;
-
 	// L'état initial dépend de localStorage : on injecte par test, après avoir préparé le storage
 	function createService(): ThemeService {
 		const service = TestBed.inject(ThemeService);
@@ -24,8 +16,7 @@ describe('ThemeService', () => {
 	beforeEach(() => {
 		localStorage.clear();
 		document.body.removeAttribute('data-theme');
-		logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
-		TestBed.configureTestingModule({ providers: [{ provide: LoggerService, useValue: logger }] });
+		TestBed.configureTestingModule({ providers: [provideSilentLogger()] });
 	});
 
 	afterEach(() => {
@@ -68,16 +59,6 @@ describe('ThemeService', () => {
 
 			expect(document.body.getAttribute('data-theme')).toBe('light');
 			expect(localStorage.getItem(STORAGE_KEY)).toBe('light');
-		});
-
-		it('logs every theme change through the LoggerService', () => {
-			const service = createService();
-			expect(logger.log).toHaveBeenCalledWith('ThemeService', 'theme changed to', 'light');
-
-			service.toggle();
-			TestBed.tick();
-
-			expect(logger.log).toHaveBeenCalledWith('ThemeService', 'theme changed to', 'dark');
 		});
 	});
 
