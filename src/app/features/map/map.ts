@@ -265,6 +265,8 @@ export class Map {
 	private allR7Data: H3Data | null = null;
 	private newTripIndicesForPolyline: Set<number> | null = null;
 	private savedNewCellsR7 = new Set<string>();
+	/** Vrai quand le glow affiché provient du récap Découverte (« lieux débloqués ») : un tap sur la carte l'efface. */
+	private highlightFromMonthDiscovery = false;
 
 	showControlMenu = signal(false);
 	showViewMenu = signal(false);
@@ -1838,6 +1840,10 @@ export class Map {
 				}, 0);
 			} else if (this.newTripIndicesForPolyline) {
 				this.exitNewTripsPolylineMode();
+				this.clearMonthDiscoveryHighlight();
+			} else if (this.highlightFromMonthDiscovery) {
+				// Le mode polyligne a déjà été quitté (ex. dézoom) mais le glow découverte est encore visible.
+				this.clearMonthDiscoveryHighlight();
 			}
 		});
 
@@ -5691,6 +5697,7 @@ export class Map {
 	}
 
 	reopenRecap(): void {
+		this.highlightFromMonthDiscovery = false;
 		this.recapDismissedTs = 0;
 		this.db.kvDelete('recapDismissedTs').subscribe();
 		this.recapDismissed.set(false);
@@ -5703,6 +5710,8 @@ export class Map {
 	}
 
 	onViewNewTrips(): void {
+		// Flux « nouveaux lieux » : le glow doit persister après un tap (récupérable via le récap).
+		this.highlightFromMonthDiscovery = false;
 		this.viewTripsForNewCells();
 	}
 
@@ -5723,6 +5732,7 @@ export class Map {
 			if (firstDate && firstDate.substring(0, 7) === monthKey) cells.push(cell);
 		}
 		if (cells.length === 0) return;
+		this.highlightFromMonthDiscovery = true;
 		this.showStatsModal.set(false);
 		this.newCellsR7 = new Set(cells);
 		this.updateNewCellsLayer();
@@ -5771,6 +5781,13 @@ export class Map {
 		this.currentMode = null;
 		this.currentResolution = null;
 		this.updateView();
+	}
+
+	/** Efface le glow des lieux débloqués issu du récap Découverte (déclenché par un tap sur la carte). */
+	private clearMonthDiscoveryHighlight(): void {
+		if (!this.highlightFromMonthDiscovery) return;
+		this.highlightFromMonthDiscovery = false;
+		this.clearNewCells();
 	}
 
 	private updateNewCellsLayer(): void {

@@ -1,9 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { mockGeorideApi, blockExternal } from './fixtures/api-mock';
+import { mockGeorideApi } from './fixtures/api-mock';
 
 test.describe('Login', () => {
 	test('logs in and navigates to the map', async ({ page }) => {
-		await blockExternal(page);
 		await mockGeorideApi(page);
 
 		await page.goto('/login');
@@ -15,7 +14,6 @@ test.describe('Login', () => {
 	});
 
 	test('shows an error on invalid credentials', async ({ page }) => {
-		await blockExternal(page);
 		await mockGeorideApi(page, { loginStatus: 401 });
 
 		await page.goto('/login');

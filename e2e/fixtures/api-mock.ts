@@ -34,7 +34,9 @@ export async function mockGeorideApi(page: Page, opts: { loginStatus?: number } 
 			route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 		if (url.includes('/user/login')) {
-			return loginStatus === 200 ? json({ authToken: 'e2e-token' }) : json({ message: 'unauthorized' }, loginStatus);
+			return loginStatus === 200
+				? json({ authToken: 'e2e-token' })
+				: json({ message: 'unauthorized' }, loginStatus);
 		}
 		if (url.includes('/user/new-token')) return json({ authToken: 'e2e-token-2' });
 		if (url.includes('/user/trackers')) return json(TRACKERS);
