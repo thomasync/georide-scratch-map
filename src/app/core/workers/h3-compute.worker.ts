@@ -3,7 +3,7 @@ import { latLngToCell, gridPathCells, cellToBoundary } from 'h3-js';
 
 const MIN_SEGMENT_METERS = 500;
 
-function haversineMeters(lat0: number, lng0: number, lat1: number, lng1: number): number {
+export function haversineMeters(lat0: number, lng0: number, lat1: number, lng1: number): number {
 	const R = 6371000;
 	const dLat = ((lat1 - lat0) * Math.PI) / 180;
 	const dLng = ((lng1 - lng0) * Math.PI) / 180;
@@ -12,7 +12,7 @@ function haversineMeters(lat0: number, lng0: number, lat1: number, lng1: number)
 	return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function pointInPoly(lat: number, lng: number, poly: [number, number][]): boolean {
+export function pointInPoly(lat: number, lng: number, poly: [number, number][]): boolean {
 	let inside = false;
 	for (let i = 0, n = poly.length, j = n - 1; i < n; j = i++) {
 		const [xi, yi] = poly[i];
@@ -22,7 +22,7 @@ function pointInPoly(lat: number, lng: number, poly: [number, number][]): boolea
 	return inside;
 }
 
-function segmentMetersInsidePoly(
+export function segmentMetersInsidePoly(
 	lat0: number,
 	lng0: number,
 	lat1: number,
@@ -54,7 +54,7 @@ function segmentMetersInsidePoly(
 	return insideFraction * haversineMeters(lat0, lng0, lat1, lng1);
 }
 
-function tripsToVisitedCells(
+export function tripsToVisitedCells(
 	trips: { coords: [number, number][]; date: string }[],
 	resolution: number,
 ): { counts: Record<string, number>; cellToIndices: Record<string, number[]> } {
