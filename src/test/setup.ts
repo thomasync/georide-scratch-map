@@ -1,4 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb';
+import { TestBed } from '@angular/core/testing';
 
 // jsdom n'implémente pas Worker — H3Service en instancie un en initialiseur de champ
 class WorkerStub {
@@ -30,4 +31,12 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 // Le builder tourne avec isolate:false — chaque test repart d'une base IndexedDB vierge
 beforeEach(() => {
 	globalThis.indexedDB = new IDBFactory();
+});
+
+// isolate:false partage l'injecteur racine entre tests : un service singleton comme DatabaseService
+// (avec une connexion IndexedDB mise en cache via shareReplay) survivrait d'un test à l'autre et
+// ignorerait la nouvelle IDBFactory. On réinitialise le TestBed après chaque test pour forcer une
+// instance fraîche, donc une connexion fraîche, à chaque test.
+afterEach(() => {
+	TestBed.resetTestingModule();
 });

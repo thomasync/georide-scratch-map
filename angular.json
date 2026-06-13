@@ -78,7 +78,8 @@
 							"src/test/**",
 							"src/main.ts"
 						],
-						"coverageReporters": ["text-summary", "html"]
+						"coverageReporters": ["text-summary", "html"],
+						"isolate": true
 					}
 				}
 			}
