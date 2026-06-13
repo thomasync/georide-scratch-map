@@ -157,7 +157,7 @@
 			<img src="compass.png" alt="" class="ctrl-icon" />
 		</button>
 
-		@if (newCellsRecapData() && !showNewCellsRecap()) {
+		@if (newCellsRecapData()?.newHexCount && !showNewCellsRecap()) {
 			<button class="ctrl-btn" (click)="reopenRecap()" title="Voir les nouveaux lieux">
 				<img src="recap.png" alt="" class="ctrl-icon" />
 			</button>
