@@ -265,8 +265,6 @@ export class Map {
 	private allR7Data: H3Data | null = null;
 	private newTripIndicesForPolyline: Set<number> | null = null;
 	private savedNewCellsR7 = new Set<string>();
-	/** Première date de visite par cellule H3 R7 (AAAA-MM-JJ) — pour cibler les lieux débloqués par mois. */
-	private cellFirstDate: Record<string, string> = {};
 
 	showControlMenu = signal(false);
 	showViewMenu = signal(false);
@@ -5714,9 +5712,16 @@ export class Map {
 	 */
 	onViewMonthNewCells(monthKey: string): void {
 		if (!this.allR7Data) return;
-		const cells = Object.entries(this.cellFirstDate)
-			.filter(([, fd]) => fd.substring(0, 7) === monthKey)
-			.map(([cell]) => cell);
+		// Cellules découvertes ce mois-ci = celles dont la première visite tombe dans `monthKey`.
+		const cells: string[] = [];
+		for (const [cell, indices] of Object.entries(this.allR7Data.cellToIndices)) {
+			let firstDate: string | undefined;
+			for (const idx of indices) {
+				const date = this.allTripsWithCoords[idx]?.startTime.substring(0, 10);
+				if (date && (!firstDate || date < firstDate)) firstDate = date;
+			}
+			if (firstDate && firstDate.substring(0, 7) === monthKey) cells.push(cell);
+		}
 		if (cells.length === 0) return;
 		this.showStatsModal.set(false);
 		this.newCellsR7 = new Set(cells);

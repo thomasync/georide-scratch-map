@@ -253,12 +253,14 @@
 							@if (cur.newHexCount > 0) {
 								<div class="discovery-group">
 									<div class="place-chips">
-										<span class="place-chip place-chip--stat"
-											>🗺 {{ cur.newHexCount }} lieu{{
-												cur.newHexCount > 1 ? 'x' : ''
-											}}
-											débloqué{{ cur.newHexCount > 1 ? 's' : '' }}</span
+										<button
+											class="place-chip place-chip--stat place-chip--btn"
+											(click)="viewNewHexesFor(cur.key)"
 										>
+											🗺 {{ cur.newHexCount }} lieu{{ cur.newHexCount > 1 ? 'x' : '' }} débloqué{{
+												cur.newHexCount > 1 ? 's' : ''
+											}}
+										</button>
 									</div>
 								</div>
 							}

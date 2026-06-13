@@ -258,6 +258,8 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	readonly selectTrip = output<string>();
 	readonly applyFilter = output<FilterAction>();
 	readonly fuelTypeChange = output<string>();
+	/** Émet la clé du mois (AAAA-MM) dont on veut mettre en surbrillance les lieux débloqués sur la carte. */
+	readonly viewNewHexes = output<string>();
 
 	readonly modalBody = viewChild<ElementRef<HTMLElement>>('modalBody');
 	readonly promptTextarea = viewChild<ElementRef<HTMLTextAreaElement>>('promptTextarea');
@@ -365,6 +367,11 @@ export class StatsModalComponent implements OnChanges, OnInit {
 	openTrip(indexId: string | null | undefined): void {
 		if (!indexId) return;
 		this.selectTrip.emit(indexId);
+	}
+
+	viewNewHexesFor(monthKey: string | null | undefined): void {
+		if (!monthKey) return;
+		this.viewNewHexes.emit(monthKey);
 	}
 
 	filterDay(date: string): void {
